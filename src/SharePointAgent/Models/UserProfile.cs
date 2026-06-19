@@ -34,4 +34,11 @@ public sealed record SharePointProfile
     public IReadOnlyList<string> PastProjects { get; init; } = [];
     public IReadOnlyList<string> Responsibilities { get; init; } = [];
     public IReadOnlyList<string> Schools { get; init; } = [];
+
+    /// <summary>
+    /// All SharePoint UPS properties keyed by internal name (incl. custom attributes from
+    /// Manage User Properties). Populated only in app mode; skipped in user/passthrough mode.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ExtendedProperties { get; init; } =
+        new Dictionary<string, string>();
 }

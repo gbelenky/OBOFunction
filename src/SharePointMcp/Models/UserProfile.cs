@@ -37,4 +37,13 @@ public sealed record SharePointProfile
     public IReadOnlyList<string> PastProjects { get; init; } = [];
     public IReadOnlyList<string> Responsibilities { get; init; } = [];
     public IReadOnlyList<string> Schools { get; init; } = [];
+
+    /// <summary>
+    /// All SharePoint UPS properties returned by GetMyProperties, keyed by internal name
+    /// (e.g. custom properties created in Manage User Properties). Lets custom attributes
+    /// surface without being individually hard-coded above. Only populated in app mode
+    /// (ResolvedVia "app"); skipped in user/passthrough mode where UPS is not called.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ExtendedProperties { get; init; } =
+        new Dictionary<string, string>();
 }

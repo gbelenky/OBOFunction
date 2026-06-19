@@ -7,7 +7,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "PORT": "8089",
-        "SHAREPOINT_TENANT_HOSTNAME": "contoso.sharepoint.com"
+        "SHAREPOINT_TENANT_HOSTNAME": "mngenv168112.sharepoint.com"
       }
     }
   }

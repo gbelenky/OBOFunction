@@ -63,9 +63,15 @@ public sealed class SharePointProfileService
             {
                 sp = await FetchSharePointProfileAsync(ct).ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex)
             {
                 // SharePoint UPS is best-effort; the Graph profile is still returned.
+                // Surface the reason to stderr so dev-loop failures (e.g. the Azure CLI
+                // app's SharePoint-token 401, since it has no SP delegated consent) are
+                // visible instead of silently producing a null SharePointProfile.
+                Console.Error.WriteLine(
+                    $"[SharePointProfileService] UPS fetch failed (resolvedVia={_resolvedVia}): " +
+                    $"{ex.GetType().Name}: {ex.Message}");
                 sp = null;
             }
         }
@@ -132,18 +138,25 @@ public sealed class SharePointProfileService
         }
 
         string? aboutMe = StrOrNull("AboutMe");
-        if (aboutMe is null && root.TryGetProperty("UserProfileProperties", out var props) && props.ValueKind == JsonValueKind.Array)
+
+        // Capture every UPS property by internal name so custom attributes
+        // (created in Manage User Properties) surface without hard-coding each one.
+        var extended = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (root.TryGetProperty("UserProfileProperties", out var allProps) && allProps.ValueKind == JsonValueKind.Array)
         {
-            foreach (var kv in props.EnumerateArray())
+            foreach (var kv in allProps.EnumerateArray())
             {
-                if (kv.TryGetProperty("Key", out var k) && string.Equals(k.GetString(), "AboutMe", StringComparison.OrdinalIgnoreCase)
-                    && kv.TryGetProperty("Value", out var v) && v.ValueKind == JsonValueKind.String)
+                if (kv.TryGetProperty("Key", out var k) && kv.TryGetProperty("Value", out var v))
                 {
-                    aboutMe = v.GetString();
-                    break;
+                    var key = k.GetString();
+                    var val = v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString();
+                    if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(val))
+                        extended[key] = val;
                 }
             }
         }
+
+        aboutMe ??= extended.GetValueOrDefault("AboutMe");
 
         return new SharePointProfile
         {
@@ -154,7 +167,8 @@ public sealed class SharePointProfileService
             Interests = MultiValue("SPS-Interests"),
             PastProjects = MultiValue("SPS-PastProjects"),
             Responsibilities = MultiValue("SPS-Responsibility"),
-            Schools = MultiValue("SPS-School")
+            Schools = MultiValue("SPS-School"),
+            ExtendedProperties = extended
         };
     }
 }
