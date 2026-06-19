@@ -319,3 +319,55 @@ https://rsc-fdr-swc.services.ai.azure.com/api/projects/prj-fdr-swc/toolboxes/Sha
 - Pre-authorize the **SharePoint Online Client Extensibility** SP (`08e18876-6177-487e-b8b5-cf950c1e598c`) on the OBO app so SPFx can mint the inbound token (currently only the Azure CLI app is pre-authorized for local testing).
 
 > **Status: all Shape 2 components are preview** (Toolbox `V1Preview`, hosted-agents platform, Agent 365 managed MCP servers may be Frontier-gated). Keep Shape 1 as the GA fallback; flip `Foundry:ToolboxMcpUrl` to pilot Shape 2.
+
+### 8.6 Simpler Shape 2: native MCP **OAuth identity passthrough** (no Toolbox)
+
+**You do not have to wrap the MCP server in a Toolbox.** Foundry's MCP tool has a *native* auth mode — **OAuth identity passthrough** — that you configure directly on the tool. The Toolbox is only a convenience layer that consolidates auth across *several* tools; for a single MCP server it adds nothing the native tool doesn't already do.
+
+Per the current docs (`mcp-authentication`), the MCP tool supports five auth methods — all of them point Foundry at the **existing** remote MCP endpoint, none require a Toolbox:
+
+| Method | User context preserved? | Needs a connection? |
+|---|---|---|
+| Unauthenticated | No | No |
+| Key-based (API key / PAT in a connection) | No | Yes (key) |
+| Microsoft Entra — agent identity | No | No |
+| Microsoft Entra — project managed identity | No | No |
+| **OAuth identity passthrough** | **Yes** | **Yes (OAuth)** ← this is `s2-connection` |
+
+So `s2-connection` is **not** a Toolbox — it is the single **OAuth connection** the passthrough mode uses to mint/refresh the user token. Two flavors: **managed OAuth** (Microsoft/publisher owns the app) or **custom OAuth** (bring your own app reg — we already have `obo-sp-userprofile-dev`).
+
+**Native passthrough flow:**
+
+```
+SPFx (user signed in) → user token (Foundry audience) → hosted agent
+   → Foundry OAuth passthrough forwards the USER's token
+   → our MCP server (custom audience api://obo-sp-userprofile-dev) → OBO → Graph + SharePoint UPS  (AS THE USER)
+```
+
+**Hard constraints (from `mcp-authentication`):**
+- Each end-user needs the **Foundry User** role on the project; user tenant must match the project tenant (**no cross-tenant**).
+- Add **`offline_access`** to the scopes so the token auto-refreshes.
+- ⚠️ **Microsoft-audience guardrail:** managed-OAuth Microsoft tokens are blocked from custom endpoints — *"Cannot pass Microsoft token to untrusted MCP endpoint."* Our MCP server must be registered with **an audience we control** (`api://obo-sp-userprofile-dev`), then OBO-exchange downstream for Graph/SharePoint. This preserves the **custom SharePoint UPS fields** (Country, Language, Skills, Interests) that a managed M365 MCP server would not return.
+
+#### Inner dev loop with this model
+
+Endpoint-swapping is already solved by the agent's `MCP_SERVER_URL` flag, but the **token-injection path differs by host** — it is *not* purely a URL swap:
+
+| | Local dev (self-hosted MAF agent) | Deployed (Foundry hosted agent) |
+|---|---|---|
+| MCP endpoint | `http://localhost:8089/mcp` (`MCP_SERVER_URL`) | `https://<mcp-containerapp>/mcp` |
+| Who attaches the user token | **You** — set `Authorization: Bearer <dev token>` on the agent's `HttpClient`/transport | **Foundry** — OAuth identity passthrough + `s2-connection` |
+| Connection object | none | required |
+| Consent flow | none (paste a dev token) | one-time consent link per user |
+
+Same MCP server code on both sides; only the token source changes. Local stays a fast, no-consent loop; hosted uses the platform passthrough.
+
+#### Does it still support our SPFx context?
+
+**Yes — preserving the SPFx user's identity end-to-end is exactly what passthrough is for.** The signed-in SPFx user's token flows through the agent and reaches Graph/SharePoint as that user. Caveats that SPFx must handle:
+- **First-use consent link** — Foundry emits a one-time consent URL per user; the SPFx web part must open it and re-send (already covered by `s2-spfx` / the `consent_required` reply contract).
+- **Same tenant** as the Foundry project; user holds **Foundry User**.
+- MCP server exposes the **custom audience** (above), or the token is rejected.
+
+> **Recommended path going forward:** native MCP OAuth identity passthrough (this §8.6), not the Toolbox (§8.5). The Toolbox remains valid if we later consolidate *multiple* user-scoped tools under one connection, but for the single SharePoint profile MCP server the native tool is simpler and the dev loop is just "localhost token-attach for dev, passthrough connection for hosted."
+
