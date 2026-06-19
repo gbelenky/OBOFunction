@@ -1,0 +1,150 @@
+# Local dev tests for SharePointMcp — the 2-mode MCP server
+#
+# Requires: REST Client extension (humao.rest-client)
+#
+# Transport: MCP Streamable HTTP at /mcp. Every call needs:
+#   Accept: application/json, text/event-stream
+# After `initialize`, follow-up calls MUST send the Mcp-Session-Id header
+# returned by the initialize response. REST Client chains it automatically
+# via named requests: {{mcpInit.response.headers.Mcp-Session-Id}}.
+#
+# Responses come back as SSE frames:  event: message \n data: { ...json... }
+#
+# ── 2 MODES ───────────────────────────────────────────────────────────────
+# Layer A (dev / bypass):  send NO Authorization header  -> server uses
+#   DefaultAzureCredential (your `az login`); result.ResolvedVia == "app".
+# Layer B (passthrough):   send  Authorization: Bearer {{token}}  -> server
+#   acts AS THE USER (StaticTokenCredential); result.ResolvedVia == "user"
+#   (SharePoint UPS is skipped in this mode — Graph /me still returned).
+#
+# Refresh a user token for Layer B (PowerShell) — paste over @token below:
+#   az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv | Set-Clipboard
+
+@mcpUrl = http://localhost:8089
+
+# Paste a Graph user token here for the Layer B passthrough tests
+@token = PASTE_GRAPH_USER_TOKEN_HERE
+
+###############################################################################
+# Health probes
+###############################################################################
+
+### Liveness
+GET {{mcpUrl}}/liveness
+
+### Readiness
+GET {{mcpUrl}}/readiness
+
+###############################################################################
+# LAYER A — developer identity (no Authorization header)
+# Run these in order: initialize -> initialized -> list -> call
+###############################################################################
+
+# @name mcpInit
+### A1. initialize (captures Mcp-Session-Id for the calls below)
+POST {{mcpUrl}}/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": { "name": "rest-client", "version": "1.0" }
+  }
+}
+
+### A2. notifications/initialized (completes the handshake)
+POST {{mcpUrl}}/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcpInit.response.headers.Mcp-Session-Id}}
+
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/initialized"
+}
+
+### A3. tools/list — expect get_sharepoint_profile
+POST {{mcpUrl}}/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcpInit.response.headers.Mcp-Session-Id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list",
+  "params": {}
+}
+
+### A4. tools/call get_sharepoint_profile — expect ResolvedVia: "app"
+POST {{mcpUrl}}/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcpInit.response.headers.Mcp-Session-Id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "get_sharepoint_profile",
+    "arguments": {}
+  }
+}
+
+###############################################################################
+# LAYER B — user passthrough (Authorization: Bearer {{token}})
+# Uses its own session so it doesn't collide with Layer A above.
+###############################################################################
+
+# @name mcpInitUser
+### B1. initialize (with user token)
+POST {{mcpUrl}}/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Authorization: Bearer {{token}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": { "name": "rest-client", "version": "1.0" }
+  }
+}
+
+### B2. notifications/initialized
+POST {{mcpUrl}}/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Authorization: Bearer {{token}}
+Mcp-Session-Id: {{mcpInitUser.response.headers.Mcp-Session-Id}}
+
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/initialized"
+}
+
+### B3. tools/call get_sharepoint_profile — expect ResolvedVia: "user"
+POST {{mcpUrl}}/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Authorization: Bearer {{token}}
+Mcp-Session-Id: {{mcpInitUser.response.headers.Mcp-Session-Id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "get_sharepoint_profile",
+    "arguments": {}
+  }
+}

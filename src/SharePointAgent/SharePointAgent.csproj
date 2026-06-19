@@ -18,6 +18,10 @@
     <PackageReference Include="Microsoft.Graph" Version="5.97.0" />
     <!-- Pin patched Kiota to clear GHSA-7j59-v9qr-6fq9 pulled transitively by Graph. -->
     <PackageReference Include="Microsoft.Kiota.Abstractions" Version="1.22.2" />
+    <!-- 1.2.0 depends on Microsoft.Extensions.AI.Abstractions [10.4.1, ), satisfied by the
+         pinned 10.5.0 family without forcing the 10.5.2 bump that breaks AgentServer.Responses
+         (WebSearchToolResultContent.set_Results MethodNotFound at runtime). -->
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
   </ItemGroup>
 
 </Project>

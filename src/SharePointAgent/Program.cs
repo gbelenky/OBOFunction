@@ -2,6 +2,8 @@ using Azure.AI.Projects;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
+using Microsoft.Extensions.AI;
+using ModelContextProtocol.Client;
 using SharePointAgent.Services;
 using SharePointAgent.Tools;
 
@@ -36,8 +38,34 @@ if (string.IsNullOrWhiteSpace(sharePointRootSiteUrl))
 
 var credential = new DefaultAzureCredential();
 
-var profileService = new SharePointProfileService(credential, sharePointRootSiteUrl);
-var profileTools = new ProfileTools(profileService);
+// Tool sourcing is flag-gated so the agent can be tested two ways:
+//   * MCP_SERVER_URL set   -> consume tools from the standalone SharePointMcp server
+//                             over MCP (Layer A local test, or a deployed/tunnelled server).
+//   * MCP_SERVER_URL unset -> use the embedded in-process get_sharepoint_profile tool
+//                             (original self-contained behaviour).
+IList<AITool> tools;
+string? mcpServerUrl = Environment.GetEnvironmentVariable("MCP_SERVER_URL");
+
+if (!string.IsNullOrWhiteSpace(mcpServerUrl))
+{
+    var transport = new HttpClientTransport(new HttpClientTransportOptions
+    {
+        Endpoint = new Uri(mcpServerUrl),
+        Name = "SharePointMcp",
+        TransportMode = HttpTransportMode.AutoDetect,
+    });
+
+    // Kept alive for the process lifetime; tool invocations flow through this client.
+    McpClient mcpClient = await McpClient.CreateAsync(transport);
+    IList<McpClientTool> mcpTools = await mcpClient.ListToolsAsync();
+    tools = [.. mcpTools];
+}
+else
+{
+    var profileService = new SharePointProfileService(credential, sharePointRootSiteUrl);
+    var profileTools = new ProfileTools(profileService);
+    tools = [profileTools.CreateTool()];
+}
 
 const string instructions =
     "You are the SharePoint Profile Assistant. " +
@@ -52,7 +80,7 @@ AIAgent agent = new AIProjectClient(new Uri(projectEndpoint), credential)
         model: deploymentName,
         name: "SharePointProfileAgent",
         instructions: instructions,
-        tools: [profileTools.CreateTool()]);
+        tools: [.. tools]);
 
 string port =
     Environment.GetEnvironmentVariable("DEFAULT_AD_PORT")
