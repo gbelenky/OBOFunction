@@ -5,12 +5,12 @@ namespace OBOFunction.Tests;
 
 /// <summary>
 /// Tests for <see cref="ResponsesPayloadParser"/> — the fragile, preview-surface parsing of
-/// Foundry Responses payloads, including the Shape 2 OAuth consent ceremony. These cover the
+/// Foundry Responses payloads, including the OAuth consent ceremony. These cover the
 /// paths that have never executed at runtime, so the parsing tolerance is the contract under test.
 /// </summary>
 public class ResponsesPayloadParserTests
 {
-    // ---------- Shape 1 / normal completion ----------
+    // ---------- normal completion ----------
 
     [Fact]
     public void ParseReply_UsesOutputText_WhenPresent()
@@ -82,7 +82,7 @@ public class ResponsesPayloadParserTests
         Assert.Equal("", reply.ResponseId);
     }
 
-    // ---------- Shape 2 / consent ceremony ----------
+    // ---------- consent ceremony ----------
 
     [Theory]
     [InlineData("oauth_consent_request", "consent_link")]

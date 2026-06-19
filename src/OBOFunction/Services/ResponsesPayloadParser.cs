@@ -13,7 +13,7 @@ namespace OBOFunction.Services;
 public static class ResponsesPayloadParser
 {
     /// <summary>
-    /// Parses a Responses payload. Detects an OAuth/MCP consent request (Shape 2) and surfaces its
+    /// Parses a Responses payload. Detects an OAuth/MCP consent request and surfaces its
     /// link; otherwise prefers <c>output_text</c>, falling back to <c>output[].content[].text</c>.
     /// </summary>
     public static AgentChatReply ParseReply(string json)
@@ -23,7 +23,7 @@ public static class ResponsesPayloadParser
 
         var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
 
-        // --- Shape 2: surface a consent ceremony if the run is awaiting delegated consent. ---
+        // --- Surface a consent ceremony if the run is awaiting delegated consent. ---
         if (TryFindConsentLink(root, out var consentUrl))
         {
             return new AgentChatReply(

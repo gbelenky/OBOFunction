@@ -7,12 +7,12 @@ using SharePointMcp.Tools;
 //
 // Exposes `get_sharepoint_profile` over MCP Streamable HTTP at /mcp using the official
 // ModelContextProtocol.AspNetCore SDK. Two-mode auth (see RequestCredentialProvider):
-//   - Layer B / prod: inbound `Authorization: Bearer <user token>` -> acts AS THE USER
-//     (Foundry's OAuth connection injects this when the toolbox calls the server).
-//   - Layer A / dev:  no bearer -> DefaultAzureCredential -> acts as the developer/app.
+//   - User mode (prod): inbound `Authorization: Bearer <user token>` -> OBO -> acts AS THE USER
+//     (the proxy attaches this token to the Foundry mcp tool; Foundry forwards it here).
+//   - App mode (dev):   no bearer -> DefaultAzureCredential -> acts as the developer/managed identity.
 //
-// Run locally (Layer A):  dotnet run  ->  http://localhost:8089/mcp
-// Expose to Foundry cloud (Layer B):  devtunnel host -p 8089  ->  https://<id>.devtunnels.ms/mcp
+// Run locally:  dotnet run  ->  http://localhost:8089/mcp
+// Transport is Stateless (required: Foundry's MCP client does not retain Mcp-Session-Id).
 // ----------------------------------------------------------------------------
 
 var builder = WebApplication.CreateBuilder(args);

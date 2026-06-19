@@ -9,7 +9,7 @@ using OBOFunction.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------------------
-// OBOFunction — SharePoint Profile API (Shape 1 OBO proxy), hosted on App Service.
+// OBOFunction — SharePoint profile + agent-chat proxy (OBO), hosted on App Service.
 //
 // Refactored from an Azure Functions isolated worker to a plain ASP.NET Core Web API
 // so it can run as an App Service Web App alongside the SharePointMcp API. Endpoints,
