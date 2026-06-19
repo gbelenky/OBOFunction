@@ -16,17 +16,17 @@ param aadTenantId string
 param aadClientId string
 
 @secure()
-@description('Function App registration client secret. Seeded to Key Vault; never stored in app settings directly.')
-param aadClientSecret string
+@description('Proxy API app-registration client secret. Optional: when empty, the secret is not seeded and OBO is disabled until set. Never stored in app settings directly.')
+param aadClientSecret string = ''
 
 @description('SharePoint tenant hostname for CORS, e.g. contoso.sharepoint.com.')
 param sharepointTenantHostname string
 
 @description('Foundry project endpoint URL.')
-param foundryProjectEndpoint string
+param foundryProjectEndpoint string = ''
 
 @description('Foundry agent ID (asst_xxx).')
-param foundryAgentId string
+param foundryAgentId string = ''
 
 @description('Principal ID of the user/SP running azd, for KV access during seeding.')
 param principalId string = ''
@@ -65,10 +65,12 @@ module resources 'modules/resources.bicep' = {
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = aadTenantId
 output AZURE_RESOURCE_GROUP string = rg.name
-output AZURE_FUNCTION_APP_NAME string = resources.outputs.functionAppName
-output AZURE_FUNCTION_APP_HOSTNAME string = resources.outputs.functionAppHostname
+output SERVICE_API_NAME string = resources.outputs.proxyAppName
+output SERVICE_API_HOSTNAME string = resources.outputs.proxyAppHostname
+output SERVICE_SHAREPOINT_MCP_NAME string = resources.outputs.mcpAppName
+output SERVICE_SHAREPOINT_MCP_HOSTNAME string = resources.outputs.mcpAppHostname
+output MCP_SERVER_URL string = '${resources.outputs.mcpAppHostname}/mcp'
 output AZURE_KEY_VAULT_NAME string = resources.outputs.keyVaultName
 output AZURE_KEY_VAULT_ENDPOINT string = resources.outputs.keyVaultEndpoint
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = resources.outputs.appInsightsConnectionString
 output API_APP_RESOURCE_ID string = 'api://${aadClientId}'
-output SERVICE_API_NAME string = resources.outputs.functionAppName

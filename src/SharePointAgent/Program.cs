@@ -24,9 +24,13 @@ string projectEndpoint =
         "FOUNDRY_PROJECT_ENDPOINT (or AZURE_AI_PROJECT_ENDPOINT) must be set.");
 
 string deploymentName =
-    Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME")
-    ?? Environment.GetEnvironmentVariable("FOUNDRY_MODEL_DEPLOYMENT_NAME")
+    FirstNonBlank(
+        Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"),
+        Environment.GetEnvironmentVariable("FOUNDRY_MODEL_DEPLOYMENT_NAME"))
     ?? "gpt-4.1-mini";
+
+static string? FirstNonBlank(params string?[] values) =>
+    values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
 string? sharePointRootSiteUrl = Environment.GetEnvironmentVariable("SHAREPOINT_ROOT_SITE_URL");
 if (string.IsNullOrWhiteSpace(sharePointRootSiteUrl))
@@ -93,7 +97,7 @@ builder.Services.AddFoundryResponses(agent);
 
 var app = builder.Build();
 app.MapFoundryResponses();
-app.MapGet("/liveness", () => Results.Ok("Healthy"));
 app.MapGet("/readiness", () => Results.Ok("Ready"));
+app.MapGet("/liveness", () => Results.Ok("Healthy"));
 
 app.Run();

@@ -16,9 +16,9 @@ param foundryProjectEndpoint string
 param foundryAgentId string
 param principalId string
 
-var storageName = 'st${resourceToken}'
 var planName = 'plan-${resourceToken}'
-var functionAppName = 'func-${resourceToken}'
+var proxyAppName = 'app-proxy-${resourceToken}'
+var mcpAppName = 'app-mcp-${resourceToken}'
 var laName = 'log-${resourceToken}'
 var aiName = 'appi-${resourceToken}'
 var kvName = 'kv-${take(resourceToken, 20)}'
@@ -27,9 +27,10 @@ var uamiName = 'id-${resourceToken}'
 // Role definition IDs
 var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6' // Key Vault Secrets User
 var kvSecretsOfficerRoleId = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7' // Key Vault Secrets Officer (for azd principal to seed)
-var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
 
-// User-assigned managed identity for the Function App
+var hasClientSecret = !empty(aadClientSecret)
+
+// User-assigned managed identity shared by both web apps
 module uami 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = {
   name: 'uami-deploy'
   params: {
@@ -64,32 +65,6 @@ module ai 'br/public:avm/res/insights/component:0.4.2' = {
   }
 }
 
-// Storage account (required by Functions)
-module storage 'br/public:avm/res/storage/storage-account:0.14.3' = {
-  name: 'storage-deploy'
-  params: {
-    name: storageName
-    location: location
-    tags: tags
-    skuName: 'Standard_LRS'
-    kind: 'StorageV2'
-    allowBlobPublicAccess: false
-    minimumTlsVersion: 'TLS1_2'
-    publicNetworkAccess: 'Enabled'
-    networkAcls: {
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
-    }
-    roleAssignments: [
-      {
-        principalId: uami.outputs.principalId
-        roleDefinitionIdOrName: storageBlobDataOwnerRoleId
-        principalType: 'ServicePrincipal'
-      }
-    ]
-  }
-}
-
 // Key Vault — UAMI gets read; azd principal gets officer for seeding
 module kv 'br/public:avm/res/key-vault/vault:0.10.2' = {
   name: 'kv-deploy'
@@ -117,23 +92,37 @@ module kv 'br/public:avm/res/key-vault/vault:0.10.2' = {
           principalType: 'User'
         }
       ])
-    secrets: [
+    secrets: hasClientSecret ? [
       {
         name: 'AzureAd--ClientSecret'
         value: aadClientSecret
       }
-    ]
+    ] : []
   }
 }
 
-// Function App (Flex Consumption-style via AVM site module)
-module functionApp 'br/public:avm/res/web/site:0.11.1' = {
-  name: 'func-deploy'
+// Shared App Service plan (Linux, B1 for demo)
+module plan 'br/public:avm/res/web/serverfarm:0.4.1' = {
+  name: 'plan-deploy'
   params: {
-    name: functionAppName
+    name: planName
+    location: location
+    tags: tags
+    skuName: 'B1'
+    skuCapacity: 1
+    kind: 'linux'
+    reserved: true
+  }
+}
+
+// SharePoint Proxy Web API (OBO) — azd service "api"
+module proxyApp 'br/public:avm/res/web/site:0.11.1' = {
+  name: 'proxy-deploy'
+  params: {
+    name: proxyAppName
     location: location
     tags: union(tags, { 'azd-service-name': 'api' })
-    kind: 'functionapp,linux'
+    kind: 'app,linux'
     serverFarmResourceId: plan.outputs.resourceId
     managedIdentities: {
       userAssignedResourceIds: [
@@ -141,8 +130,64 @@ module functionApp 'br/public:avm/res/web/site:0.11.1' = {
       ]
     }
     siteConfig: {
-      linuxFxVersion: 'DOTNET-ISOLATED|8.0'
-      alwaysOn: false
+      linuxFxVersion: 'DOTNETCORE|8.0'
+      alwaysOn: true
+      ftpsState: 'Disabled'
+      minTlsVersion: '1.2'
+      http20Enabled: true
+      cors: {
+        allowedOrigins: [
+          'https://${sharepointTenantHostname}'
+        ]
+        supportCredentials: true
+      }
+    }
+    httpsOnly: true
+    appSettingsKeyValuePairs: union(
+      {
+        APPLICATIONINSIGHTS_CONNECTION_STRING: ai.outputs.connectionString
+        APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${uami.outputs.clientId};Authorization=AAD'
+
+        'AzureAd__Instance': 'https://login.microsoftonline.com/'
+        'AzureAd__TenantId': aadTenantId
+        'AzureAd__ClientId': aadClientId
+        'AzureAd__Audience': 'api://${aadClientId}'
+
+        'Graph__Scopes': 'User.Read'
+        'SharePoint__RootSiteUrl': 'https://${sharepointTenantHostname}'
+        'SharePoint__Scopes': 'AllSites.Read User.Read.All'
+        'SharePoint__TenantHostname': sharepointTenantHostname
+
+        'Foundry__ProjectEndpoint': foundryProjectEndpoint
+        'Foundry__AgentId': foundryAgentId
+
+        'KeyVault__Uri': kv.outputs.uri
+        'AZURE_CLIENT_ID': uami.outputs.clientId
+      },
+      hasClientSecret ? {
+        'AzureAd__ClientSecret': '@Microsoft.KeyVault(VaultName=${kvName};SecretName=AzureAd--ClientSecret)'
+      } : {}
+    )
+  }
+}
+
+// SharePoint MCP server — azd service "sharepoint-mcp"
+module mcpApp 'br/public:avm/res/web/site:0.11.1' = {
+  name: 'mcp-deploy'
+  params: {
+    name: mcpAppName
+    location: location
+    tags: union(tags, { 'azd-service-name': 'sharepoint-mcp' })
+    kind: 'app,linux'
+    serverFarmResourceId: plan.outputs.resourceId
+    managedIdentities: {
+      userAssignedResourceIds: [
+        uami.outputs.resourceId
+      ]
+    }
+    siteConfig: {
+      linuxFxVersion: 'DOTNETCORE|8.0'
+      alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       http20Enabled: true
@@ -155,57 +200,21 @@ module functionApp 'br/public:avm/res/web/site:0.11.1' = {
     }
     httpsOnly: true
     appSettingsKeyValuePairs: {
-      AzureWebJobsStorage__accountName: storage.outputs.name
-      AzureWebJobsStorage__credential: 'managedidentity'
-      AzureWebJobsStorage__clientId: uami.outputs.clientId
-      FUNCTIONS_EXTENSION_VERSION: '~4'
-      FUNCTIONS_WORKER_RUNTIME: 'dotnet-isolated'
+      // SharePointMcp reads PORT and binds http://+:{PORT}; App Service Linux fronts on 8080.
+      PORT: '8080'
       APPLICATIONINSIGHTS_CONNECTION_STRING: ai.outputs.connectionString
       APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${uami.outputs.clientId};Authorization=AAD'
-
-      'AzureAd__Instance': 'https://login.microsoftonline.com/'
-      'AzureAd__TenantId': aadTenantId
-      'AzureAd__ClientId': aadClientId
-      'AzureAd__Audience': 'api://${aadClientId}'
-      'AzureAd__ClientSecret': '@Microsoft.KeyVault(VaultName=${kvName};SecretName=AzureAd--ClientSecret)'
-
-      'Graph__Scopes': 'User.Read'
-      'SharePoint__RootSiteUrl': 'https://${sharepointTenantHostname}'
-      'SharePoint__Scopes': 'AllSites.Read User.Read.All'
-
-      'Foundry__ProjectEndpoint': foundryProjectEndpoint
-      'Foundry__AgentId': foundryAgentId
-
+      SHAREPOINT_TENANT_HOSTNAME: sharepointTenantHostname
       'SharePoint__TenantHostname': sharepointTenantHostname
-
-      'KeyVault__Uri': kv.outputs.uri
-
-      'AZURE_CLIENT_ID': uami.outputs.clientId
+      AZURE_CLIENT_ID: uami.outputs.clientId
     }
   }
-  dependsOn: [
-    storage
-    ai
-    kv
-  ]
 }
 
-// App Service plan (Linux, B1 for demo — swap for FlexConsumption when AVM module supports it cleanly)
-module plan 'br/public:avm/res/web/serverfarm:0.4.1' = {
-  name: 'plan-deploy'
-  params: {
-    name: planName
-    location: location
-    tags: tags
-    skuName: 'B1'
-    skuCapacity: 1
-    kind: 'Linux'
-    reserved: true
-  }
-}
-
-output functionAppName string = functionApp.outputs.name
-output functionAppHostname string = 'https://${functionApp.outputs.defaultHostname}'
+output proxyAppName string = proxyApp.outputs.name
+output proxyAppHostname string = 'https://${proxyApp.outputs.defaultHostname}'
+output mcpAppName string = mcpApp.outputs.name
+output mcpAppHostname string = 'https://${mcpApp.outputs.defaultHostname}'
 output keyVaultName string = kv.outputs.name
 output keyVaultEndpoint string = kv.outputs.uri
 output appInsightsConnectionString string = ai.outputs.connectionString
