@@ -1,0 +1,28 @@
+# Microsoft Foundry Hosted Agent manifest.
+# Docs: https://learn.microsoft.com/azure/ai-foundry/agents/concepts/hosted-agents
+kind: hosted
+name: SharePointProfileAgent
+description: >-
+  Chat agent that loads the signed-in user's Microsoft Graph + SharePoint profile
+  at the start of every session via an embedded get_sharepoint_profile tool.
+
+protocols:
+  - protocol: responses
+    version: "1.0.0"
+
+resources:
+  cpu: "1"
+  memory: 2Gi
+
+environment_variables:
+  - name: FOUNDRY_PROJECT_ENDPOINT
+    value: ${FOUNDRY_PROJECT_ENDPOINT}
+  - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+    value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+  - name: SHAREPOINT_TENANT_HOSTNAME
+    value: ${SHAREPOINT_TENANT_HOSTNAME}
+
+code_configuration:
+  runtime: dotnet_10
+  entry_point: SharePointAgent.dll
+  dependency_resolution: remote_build

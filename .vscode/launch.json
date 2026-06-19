@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to .NET Functions",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:azureFunctions.pickProcess}"
+    },
+    {
+      "name": "Debug SharePointAgent (host)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build (agent)",
+      "program": "${workspaceFolder}/src/SharePointAgent/bin/Debug/net10.0/SharePointAgent.dll",
+      "cwd": "${workspaceFolder}/src/SharePointAgent",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "launchSettingsFilePath": "${workspaceFolder}/src/SharePointAgent/Properties/launchSettings.json",
+      "launchSettingsProfile": "SharePointAgent (host)"
+    },
+    {
+      "name": "Attach to SharePointAgent",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    },
+    {
+      "name": "Debug SharePointMcp (host)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build (mcp)",
+      "program": "${workspaceFolder}/src/SharePointMcp/bin/Debug/net8.0/SharePointMcp.dll",
+      "cwd": "${workspaceFolder}/src/SharePointMcp",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "launchSettingsFilePath": "${workspaceFolder}/src/SharePointMcp/Properties/launchSettings.json",
+      "launchSettingsProfile": "SharePointMcp"
+    },
+    {
+      "name": "Attach to SharePointMcp",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ]
+}

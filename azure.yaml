@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: obo-function
+metadata:
+  template: obo-function@0.1.0
+
+services:
+  api:
+    project: ./src/OBOFunction
+    language: dotnet
+    host: function
+
+  sharepoint-agent:
+    project: ./src/SharePointAgent
+    language: dotnet
+    host: azure.ai.agent
+    config:
+      startupCommand: dotnet SharePointAgent.dll
+      deployments:
+        - name: gpt-4o-mini
+          model:
+            format: OpenAI
+            name: gpt-4o-mini
+            version: "2024-07-18"
+          sku:
+            name: GlobalStandard
+            capacity: 30
+
+  sharepoint-mcp:
+    project: ./src/SharePointMcp
+    language: dotnet
+    host: containerapp
+    docker:
+      path: Dockerfile
+
+hooks:
+  preprovision:
+    windows:
+      shell: pwsh
+      run: ./infra/hooks/preprovision.ps1
+      continueOnError: false
+      interactive: true
+    posix:
+      shell: sh
+      run: ./infra/hooks/preprovision.sh
+      continueOnError: false
+      interactive: true
+
+  postprovision:
+    windows:
+      shell: pwsh
+      run: ./infra/hooks/postprovision.ps1
+      continueOnError: false
+      interactive: true
+    posix:
+      shell: sh
+      run: ./infra/hooks/postprovision.sh
+      continueOnError: false
+      interactive: true
+
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: ./infra/hooks/postdeploy.ps1
+      continueOnError: true
+      interactive: true
+    posix:
+      shell: sh
+      run: ./infra/hooks/postdeploy.sh
+      continueOnError: true
+      interactive: true

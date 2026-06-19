@@ -1,0 +1,37 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+
+    "AzureAd__Instance": "https://login.microsoftonline.com/",
+    "AzureAd__TenantId": "<your-tenant-guid>",
+    "AzureAd__ClientId": "<function-app-registration-client-id>",
+    "AzureAd__ClientSecret": "<dev-only-secret-or-use-keyvault>",
+    "AzureAd__Audience": "api://<function-app-registration-client-id>",
+
+    "Graph__Scopes": "User.Read",
+    "SharePoint__RootSiteUrl": "https://contoso.sharepoint.com",
+    "SharePoint__Scopes": "AllSites.Read User.Read.All",
+
+    "Foundry__ProjectEndpoint": "https://<project>.services.ai.azure.com/api/projects/<project>",
+    "Foundry__AgentName": "SharePointProfileAgent",
+    "Foundry__ApiVersion": "2025-05-01",
+    "Foundry__TokenScope": "https://ai.azure.com/.default",
+
+    "_comment_shape2": "Set Foundry__ToolboxMcpUrl to enable Shape 2 (preview): the proxy OBO-exchanges the user token for an AI-audience token and calls the agent AS THE USER with the Foundry toolbox attached, so the toolbox MCP server runs under OAuth identity passthrough. Leave blank to keep Shape 1 (managed identity + injected profile).",
+    "Foundry__ToolboxMcpUrl": "",
+    "Foundry__ToolboxServerLabel": "SharePointProfile",
+    "Foundry__ToolboxConnectionId": "sp-profile-obo",
+    "Foundry__FeaturesHeader": "Toolboxes=V1Preview",
+    "Foundry__UserTokenScope": "https://ai.azure.com/.default",
+
+    "SharePoint__TenantHostname": "contoso.sharepoint.com",
+
+    "KeyVault__Uri": ""
+  },
+  "Host": {
+    "CORS": "https://contoso.sharepoint.com",
+    "CORSCredentials": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "${AZURE_ENV_NAME}" },
+    "location": { "value": "${AZURE_LOCATION}" },
+    "aadTenantId": { "value": "${AAD_TENANT_ID}" },
+    "aadClientId": { "value": "${AAD_CLIENT_ID}" },
+    "aadClientSecret": { "value": "${AAD_CLIENT_SECRET}" },
+    "sharepointTenantHostname": { "value": "${SHAREPOINT_TENANT_HOSTNAME}" },
+    "foundryProjectEndpoint": { "value": "${FOUNDRY_PROJECT_ENDPOINT}" },
+    "foundryAgentId": { "value": "${FOUNDRY_AGENT_ID}" },
+    "principalId": { "value": "${AZURE_PRINCIPAL_ID}" }
+  }
+}

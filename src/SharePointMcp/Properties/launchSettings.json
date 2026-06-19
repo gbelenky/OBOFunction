@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "SharePointMcp": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "PORT": "8089",
+        "SHAREPOINT_TENANT_HOSTNAME": "contoso.sharepoint.com"
+      }
+    }
+  }
+}
