@@ -28,6 +28,13 @@ param foundryProjectEndpoint string = ''
 @description('Foundry agent ID (asst_xxx).')
 param foundryAgentId string = ''
 
+@description('SharePointMcp API app-registration (client) ID, e.g. the api://obo-sp-mcp app. Empty until created.')
+param mcpClientId string = ''
+
+@secure()
+@description('SharePointMcp API app-registration client secret. Optional: when empty, MCP OBO is disabled until set. Seeded to Key Vault as Mcp--ClientSecret.')
+param mcpClientSecret string = ''
+
 @description('Principal ID of the user/SP running azd, for KV access during seeding.')
 param principalId string = ''
 
@@ -58,6 +65,8 @@ module resources 'modules/resources.bicep' = {
     sharepointTenantHostname: sharepointTenantHostname
     foundryProjectEndpoint: foundryProjectEndpoint
     foundryAgentId: foundryAgentId
+    mcpClientId: mcpClientId
+    mcpClientSecret: mcpClientSecret
     principalId: principalId
   }
 }

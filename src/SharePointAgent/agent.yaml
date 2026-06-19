@@ -4,7 +4,9 @@ kind: hosted
 name: SharePointProfileAgent
 description: >-
   Chat agent that loads the signed-in user's Microsoft Graph + SharePoint profile
-  at the start of every session via an embedded get_sharepoint_profile tool.
+  at the start of every session by calling the SharePointMcp server's
+  get_sharepoint_profile tool (declared as a Foundry MCP tool). Foundry forwards the
+  caller identity to the MCP server, which performs OBO to Graph + SharePoint.
 
 protocols:
   - protocol: responses
@@ -19,8 +21,8 @@ environment_variables:
     value: ${FOUNDRY_PROJECT_ENDPOINT}
   - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
     value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
-  - name: SHAREPOINT_TENANT_HOSTNAME
-    value: ${SHAREPOINT_TENANT_HOSTNAME}
+  - name: MCP_SERVER_URL
+    value: ${MCP_SERVER_URL}
 
 code_configuration:
   runtime: dotnet_10

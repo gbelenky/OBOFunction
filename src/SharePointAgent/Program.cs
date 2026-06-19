@@ -3,15 +3,17 @@ using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 using Microsoft.Extensions.AI;
-using ModelContextProtocol.Client;
-using SharePointAgent.Services;
-using SharePointAgent.Tools;
 
 // ----------------------------------------------------------------------------
 // SharePointAgent — Microsoft Foundry Hosted Agent (.NET 10)
 //
-// Exposes a single chat agent whose embedded `get_sharepoint_profile` tool fetches
-// the signed-in user's Graph + SharePoint profile at the start of every session.
+// Single architecture: the agent declares the standalone SharePointMcp server as a
+// Foundry-native `mcp` tool (HostedMcpServerTool). Foundry resolves and calls the
+// MCP server server-side and forwards the caller's identity to it (the user's OBO
+// token injected by the proxy for the SPFx path, or the Foundry OAuth connection
+// token for the Playground). The MCP server then performs OBO to Graph + SharePoint.
+// The agent itself never touches Graph/SharePoint and holds no embedded profile tool.
+//
 // Hosting uses Microsoft.Agents.AI.Foundry.Hosting (`AddFoundryResponses` /
 // `MapFoundryResponses`) so it runs both locally (`azd ai agent run`) and as a
 // Foundry hosted agent unchanged.
@@ -32,44 +34,26 @@ string deploymentName =
 static string? FirstNonBlank(params string?[] values) =>
     values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
-string? sharePointRootSiteUrl = Environment.GetEnvironmentVariable("SHAREPOINT_ROOT_SITE_URL");
-if (string.IsNullOrWhiteSpace(sharePointRootSiteUrl))
-{
-    var host = Environment.GetEnvironmentVariable("SHAREPOINT_TENANT_HOSTNAME");
-    if (!string.IsNullOrWhiteSpace(host))
-        sharePointRootSiteUrl = $"https://{host}";
-}
-
 var credential = new DefaultAzureCredential();
 
-// Tool sourcing is flag-gated so the agent can be tested two ways:
-//   * MCP_SERVER_URL set   -> consume tools from the standalone SharePointMcp server
-//                             over MCP (Layer A local test, or a deployed/tunnelled server).
-//   * MCP_SERVER_URL unset -> use the embedded in-process get_sharepoint_profile tool
-//                             (original self-contained behaviour).
-IList<AITool> tools;
-string? mcpServerUrl = Environment.GetEnvironmentVariable("MCP_SERVER_URL");
+// The agent's ONLY tool is the standalone SharePointMcp server, declared as a
+// Foundry-native MCP tool. Foundry calls it server-side and forwards the caller
+// identity; the MCP server does the OBO exchange to Graph + SharePoint.
+string mcpServerUrl =
+    FirstNonBlank(
+        Environment.GetEnvironmentVariable("MCP_SERVER_URL"),
+        Environment.GetEnvironmentVariable("SHAREPOINT_MCP_URL"))
+    ?? throw new InvalidOperationException(
+        "MCP_SERVER_URL must be set to the SharePointMcp server /mcp endpoint " +
+        "(e.g. https://app-mcp-<token>.azurewebsites.net/mcp).");
 
-if (!string.IsNullOrWhiteSpace(mcpServerUrl))
+var mcpTool = new HostedMcpServerTool("SharePointMcp", new Uri(mcpServerUrl))
 {
-    var transport = new HttpClientTransport(new HttpClientTransportOptions
-    {
-        Endpoint = new Uri(mcpServerUrl),
-        Name = "SharePointMcp",
-        TransportMode = HttpTransportMode.AutoDetect,
-    });
+    AllowedTools = ["get_sharepoint_profile"],
+    ApprovalMode = HostedMcpServerToolApprovalMode.NeverRequire,
+};
 
-    // Kept alive for the process lifetime; tool invocations flow through this client.
-    McpClient mcpClient = await McpClient.CreateAsync(transport);
-    IList<McpClientTool> mcpTools = await mcpClient.ListToolsAsync();
-    tools = [.. mcpTools];
-}
-else
-{
-    var profileService = new SharePointProfileService(credential, sharePointRootSiteUrl);
-    var profileTools = new ProfileTools(profileService);
-    tools = [profileTools.CreateTool()];
-}
+IList<AITool> tools = [mcpTool];
 
 const string instructions =
     "You are the SharePoint Profile Assistant. " +
@@ -77,7 +61,12 @@ const string instructions =
     "to load the signed-in user's profile, then greet them by name and use that context " +
     "(job title, department, office, skills, interests, responsibilities) in your answers. " +
     "Never ask the user for information already present in their profile. " +
-    "If the tool returns null fields, work with what is available and do not invent values.";
+    "If the tool returns null fields, work with what is available and do not invent values. " +
+    "If the tool returns `profileAvailable: false`, explain to the user — clearly and briefly — " +
+    "that no signed-in user is present in this context (for example the Foundry Playground runs " +
+    "autonomously), so per-user profile data requires invoking the agent with a user token via the " +
+    "proxy's POST /api/agent/chat (OBO), an M365/Teams SSO channel, or an MCP OAuth identity-passthrough " +
+    "connection. Relay the `detail` field; do not invent profile values.";
 
 AIAgent agent = new AIProjectClient(new Uri(projectEndpoint), credential)
     .AsAIAgent(

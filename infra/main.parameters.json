@@ -10,6 +10,8 @@
     "sharepointTenantHostname": { "value": "${SHAREPOINT_TENANT_HOSTNAME}" },
     "foundryProjectEndpoint": { "value": "${FOUNDRY_PROJECT_ENDPOINT}" },
     "foundryAgentId": { "value": "${FOUNDRY_AGENT_ID}" },
+    "mcpClientId": { "value": "${MCP_CLIENT_ID}" },
+    "mcpClientSecret": { "value": "${MCP_CLIENT_SECRET}" },
     "principalId": { "value": "${AZURE_PRINCIPAL_ID}" }
   }
 }

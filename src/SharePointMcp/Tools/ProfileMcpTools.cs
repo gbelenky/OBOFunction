@@ -46,13 +46,14 @@ public sealed class ProfileMcpTools
     {
         var (credential, isUserToken) = _credentialProvider.Resolve();
 
-        // A fixed-audience user token cannot mint a SharePoint-audience token, so skip the UPS
-        // call in passthrough mode (Graph profile still returned). In app/dev mode the credential
-        // can request a SharePoint token, so UPS is attempted.
+        // Both identities can mint a SharePoint-audience token now: the user path uses
+        // OnBehalfOfCredential (fresh OBO exchange per scope) and the dev path uses
+        // DefaultAzureCredential, so the SharePoint UPS call is always attempted and custom
+        // attributes surface in every context.
         var service = new SharePointProfileService(
             credential,
             _sharePointRootSiteUrl,
-            allowSharePointUps: !isUserToken,
+            allowSharePointUps: true,
             resolvedVia: isUserToken ? "user" : "app");
 
         var profile = await service.GetMyProfileAsync(cancellationToken).ConfigureAwait(false);

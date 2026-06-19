@@ -17,6 +17,14 @@ using SharePointMcp.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Key Vault as a configuration source (Managed Identity). Secrets surface as config keys with
+// '--' mapped to ':' — e.g. Mcp--ClientSecret -> Mcp:ClientSecret (the OBO app secret).
+var kvUri = builder.Configuration["KeyVault:Uri"];
+if (!string.IsNullOrWhiteSpace(kvUri))
+{
+    builder.Configuration.AddAzureKeyVault(new Uri(kvUri), new DefaultAzureCredential());
+}
+
 string port =
     Environment.GetEnvironmentVariable("PORT")
     ?? "8089";
