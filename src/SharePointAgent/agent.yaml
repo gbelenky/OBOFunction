@@ -4,9 +4,12 @@ kind: hosted
 name: SharePointProfileAgent
 description: >-
   Chat agent that loads the signed-in user's Microsoft Graph + SharePoint profile
-  at the start of every session by calling the SharePointMcp server's
-  get_sharepoint_profile tool (declared as a Foundry MCP tool). Foundry forwards the
-  caller identity to the MCP server, which performs OBO to Graph + SharePoint.
+  by calling the SharePointMcp server's get_sharepoint_profile tool (a Foundry MCP
+  tool referencing the server URL). In the autonomous Playground no user token is
+  present, so the MCP server falls back to its managed identity (app-only) and
+  per-user fields are empty. For per-user data, invoke via the proxy's
+  POST /api/agent/chat, which calls the model Responses endpoint with a per-user
+  OBO authorization token on the MCP tool.
 
 protocols:
   - protocol: responses

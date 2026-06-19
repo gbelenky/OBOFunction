@@ -47,11 +47,38 @@ string mcpServerUrl =
         "MCP_SERVER_URL must be set to the SharePointMcp server /mcp endpoint " +
         "(e.g. https://app-mcp-<token>.azurewebsites.net/mcp).");
 
+// IMPORTANT (verified by decompiling Microsoft.Extensions.AI.OpenAI):
+// HostedMcpServerTool is converted to an OpenAI McpTool that can carry EITHER a
+// `server_url` (+ optional `authorization` header) OR a built-in `connector_id`.
+// It does NOT read AdditionalProperties and CANNOT emit a custom Foundry
+// `project_connection_id`. Therefore a hosted (code) agent cannot bind its
+// in-process MCP tool to a project "OAuth Identity Passthrough" connection.
+//
+// User-identity OBO to the custom MCP server is delivered per-call via the
+// `authorization` header (the proxy/SPFx path sets it to the user's OBO token).
+// If MCP_USER_AUTHORIZATION is present in this process (e.g. a static dev token),
+// it is forwarded; otherwise the tool is URL-only and the MCP server falls back to
+// its own managed identity (app-only) — correct for local dev, empty profile in
+// the autonomous Playground. The SPFx production path does NOT rely on this agent
+// for auth; the proxy calls the model Responses endpoint with a per-user
+// `authorization` token (see OBOFunction AgentChatClient).
+string? mcpUserAuthorization =
+    Environment.GetEnvironmentVariable("MCP_USER_AUTHORIZATION");
+
 var mcpTool = new HostedMcpServerTool("SharePointMcp", new Uri(mcpServerUrl))
 {
     AllowedTools = ["get_sharepoint_profile"],
     ApprovalMode = HostedMcpServerToolApprovalMode.NeverRequire,
 };
+
+if (!string.IsNullOrWhiteSpace(mcpUserAuthorization))
+{
+    string headerValue = mcpUserAuthorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        ? mcpUserAuthorization
+        : $"Bearer {mcpUserAuthorization}";
+    mcpTool.Headers ??= new Dictionary<string, string>();
+    mcpTool.Headers["Authorization"] = headerValue;
+}
 
 IList<AITool> tools = [mcpTool];
 

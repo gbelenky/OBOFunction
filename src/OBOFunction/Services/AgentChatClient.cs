@@ -11,22 +11,25 @@ using OBOFunction.Models;
 namespace OBOFunction.Services;
 
 /// <summary>
-/// Invokes the deployed SharePoint hosted agent through the Foundry Responses API,
-/// attaching the standalone SharePointMcp server as an <c>mcp</c> tool so the agent
-/// reads the signed-in user's Graph + SharePoint profile as that user.
+/// Invokes the Foundry <b>model</b> Responses endpoint (OpenAI v1) with the standalone
+/// SharePointMcp server attached as an <c>mcp</c> tool, so the model reads the signed-in
+/// user's Graph + SharePoint profile as that user.
 /// </summary>
 /// <remarks>
 /// <para>
-/// There is a single architecture and a single code path. Two independent tokens travel
-/// in one Responses request:
+/// The proxy targets the raw model deployment (e.g. gpt-4.1-mini), NOT the named hosted agent:
+/// hosted agents <b>reject request-supplied tools</b> ("Not allowed"), but the per-user MCP
+/// <c>authorization</c> must be attached per call. The hosted agent remains for the autonomous
+/// Foundry Playground demo (baked-in URL tool, app-only/empty profile there). The agent persona
+/// is carried by the <c>instructions</c> field on every request.
 /// </para>
+/// <para>Two independent tokens travel in one Responses request:</para>
 /// <list type="bullet">
 /// <item>
 /// <description>
-/// <b>Leg ① — call the agent:</b> the request's <c>Authorization</c> header is the proxy's own
+/// <b>Leg ① — call the model:</b> the request's <c>Authorization</c> header is the proxy's own
 /// app identity (<see cref="DefaultAzureCredential"/> — managed identity in Azure, developer
-/// credential locally) scoped to the AI data plane. This merely authorises invoking the agent;
-/// it carries no user context.
+/// credential locally) scoped to the AI data plane. It carries no user context.
 /// </description>
 /// </item>
 /// <item>
@@ -35,17 +38,10 @@ namespace OBOFunction.Services;
 /// for a token whose audience is the MCP server's app registration, and placed in the
 /// <c>mcp</c> tool's <c>authorization</c> field. Foundry forwards it as
 /// <c>Authorization: Bearer</c> when it dials the MCP <c>/mcp</c> endpoint; the MCP server then
-/// performs its own OBO to Microsoft Graph + SharePoint. No user token is ever stored, and the
-/// agent never sees it.
+/// performs its own OBO to Microsoft Graph + SharePoint. No user token is ever stored.
 /// </description>
 /// </item>
 /// </list>
-/// <para>
-/// The Playground path is the same shape with a different token <i>source</i>: there the agent's
-/// own (baked-in) MCP tool is authorised by a Foundry OAuth project connection instead of this
-/// per-call <c>authorization</c>. A direct HTTP call (rather than a preview SDK) keeps this stable
-/// across Agent Framework preview churn.
-/// </para>
 /// </remarks>
 public sealed class AgentChatClient : IAgentChatClient
 {
@@ -53,7 +49,7 @@ public sealed class AgentChatClient : IAgentChatClient
 
     private readonly TokenCredential _appCredential;
     private readonly Uri _responsesUri;
-    private readonly string _agentName;
+    private readonly string _model;
     private readonly string _appTokenScope;
     private readonly ILogger<AgentChatClient> _logger;
 
@@ -63,23 +59,42 @@ public sealed class AgentChatClient : IAgentChatClient
     private readonly string _mcpUserScope;
     private readonly IConfidentialClientApplication _cca;
 
+    // System instruction injected on every run (there is no baked-in agent on the raw-model
+    // Responses endpoint, so the proxy carries the agent persona itself).
+    private const string Instructions =
+        "You are the SharePoint Profile Assistant. At the START of every conversation, FIRST call " +
+        "the `get_sharepoint_profile` tool to load the signed-in user's Microsoft Graph + SharePoint " +
+        "profile, then use that context (job title, department, office, skills, interests, " +
+        "responsibilities) in your answers. Never ask for information already present in the profile. " +
+        "If a field is null, work with what is available and do not invent values.";
+
     public AgentChatClient(IConfiguration config, ILogger<AgentChatClient> logger)
     {
         _logger = logger;
 
         var projectEndpoint = config["Foundry:ProjectEndpoint"]
             ?? throw new InvalidOperationException("Foundry:ProjectEndpoint is required for the agent proxy.");
-        _agentName = config["Foundry:AgentName"]
-            ?? throw new InvalidOperationException("Foundry:AgentName is required for the agent proxy.");
 
-        var apiVersion = config["Foundry:ApiVersion"] ?? "2025-05-01";
         _appTokenScope = config["Foundry:TokenScope"] ?? "https://ai.azure.com/.default";
 
-        // Allow a full override; otherwise derive {endpoint}/responses?api-version=...
+        // The model deployment to drive (e.g. gpt-4.1-mini). The proxy calls the raw-model
+        // OpenAI Responses endpoint — NOT the hosted agent — because hosted agents REJECT
+        // request-supplied tools ("Not allowed"), and the per-user MCP authorization MUST be
+        // attached per call. The hosted agent remains for the autonomous Playground demo.
+        _model = FirstNonBlank(
+                config["Foundry:ModelDeployment"],
+                config["AZURE_AI_MODEL_DEPLOYMENT_NAME"],
+                Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME"))
+            ?? "gpt-4.1-mini";
+
+        // Allow a full override; otherwise derive the account-level OpenAI v1 responses endpoint
+        // ({scheme}://{host}/openai/v1/responses) from the project endpoint host. The /v1 path does
+        // NOT take an api-version query parameter.
         var responsesUrl = config["Foundry:ResponsesUrl"];
         if (string.IsNullOrWhiteSpace(responsesUrl))
         {
-            responsesUrl = $"{projectEndpoint.TrimEnd('/')}/responses?api-version={apiVersion}";
+            var host = new Uri(projectEndpoint);
+            responsesUrl = $"{host.Scheme}://{host.Authority}/openai/v1/responses";
         }
         _responsesUri = new Uri(responsesUrl);
 
@@ -111,8 +126,11 @@ public sealed class AgentChatClient : IAgentChatClient
             .Build();
 
         _logger.LogInformation(
-            "Agent proxy ready: agent={Agent}, mcp_server_label={Label}.", _agentName, _mcpServerLabel);
+            "Agent proxy ready: model={Model}, mcp_server_label={Label}.", _model, _mcpServerLabel);
     }
+
+    private static string? FirstNonBlank(params string?[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
     public async Task<AgentChatReply> ChatAsync(
         AgentChatRequest request, string? userAssertion = null, CancellationToken ct = default)
@@ -156,7 +174,8 @@ public sealed class AgentChatClient : IAgentChatClient
 
         var payload = new Dictionary<string, object?>
         {
-            ["model"] = _agentName,
+            ["model"] = _model,
+            ["instructions"] = Instructions,
             ["input"] = new List<object> { new { role = "user", content = request.Message } },
             ["tools"] = new[] { mcpTool },
             ["previous_response_id"] = request.PreviousResponseId
