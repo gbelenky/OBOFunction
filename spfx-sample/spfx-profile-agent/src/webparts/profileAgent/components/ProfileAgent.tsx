@@ -38,6 +38,26 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
     this.setState(prev => ({ maximized: !prev.maximized }));
   };
 
+  public componentDidMount(): void {
+    this.greet();
+  }
+
+  private greet = (): void => {
+    this.setState({ asking: true, chatError: undefined, consentUrl: undefined });
+    this.proxy.ask('Greet me by my first name in one short, friendly sentence. Then show my profile as a formatted bullet list, one field per line as "- Label: value", using only the fields that have a value (name, first name, last name, email, job title, responsibilities, past projects, interests, country). End by inviting me to ask a question.')
+      .then((data: ChatReply) => {
+        if (data.status === 'consent_required' && data.consentUrl) {
+          this.setState({ asking: false, consentUrl: data.consentUrl });
+          return;
+        }
+        this.setState(prev => ({
+          asking: false,
+          chat: [...prev.chat, { role: 'agent', text: data.reply }]
+        }));
+      })
+      .catch((e: Error) => this.setState({ asking: false, chatError: e.message }));
+  };
+
   private ask = (): void => {
     const message = this.state.input.trim();
     if (!message || this.state.asking) {
@@ -97,11 +117,14 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
         <div className={styles.chat}>
           <div className={styles.transcript}>
             {chat.length === 0 ? (
-              <p className={styles.hint}>Try: &quot;Who am I and what are my skills?&quot;</p>
+              <p className={styles.hint}>
+                {asking ? 'Greeting you…' : 'Try: \u201cWho am I and what are my skills?\u201d'}
+              </p>
             ) : (
               chat.map((t, i) => (
                 <div key={i} className={t.role === 'user' ? styles.userTurn : styles.agentTurn}>
-                  <strong>{t.role === 'user' ? 'You' : 'Agent'}:</strong> {escape(t.text)}
+                  <strong>{t.role === 'user' ? 'You' : 'Agent'}:</strong>{' '}
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{escape(t.text)}</span>
                 </div>
               ))
             )}
