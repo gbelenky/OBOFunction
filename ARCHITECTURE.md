@@ -3,10 +3,10 @@
 This document explains **how the signed-in user's identity flows end-to-end** in this repo, and the
 security reasoning behind it. For setup/run steps see [`README.md`](./README.md).
 
-> **Scope.** What this repo *implements* is **§1 – §3** below: the SharePoint-profile-for-a-Foundry-agent
-> OBO chain. **§4 (Broader vision)** sketches a larger "secure intranet AI assistant" (content ingestion,
-> Azure AI Search, per-document ACL trimming) that this profile service would slot into — it is **context,
-> not code in this repo**. **§5** is a reference matrix of which Foundry agent auth paths support OBO.
+> **Scope.** This repo demonstrates **how to obtain the signed-in user's profile (especially the
+> `IntranetCountry` UPS field) via the OBO chain** — §1 – §3 below. The retrieved profile is the input to a
+> **next-step search integration** (e.g. query an index for documents where `IntranetCountry=DE`), which is
+> **not yet implemented here**. **§4** is a reference matrix of which Foundry agent auth paths support OBO.
 
 ---
 
@@ -197,56 +197,7 @@ readable only through a **SharePoint-consented token**:
 
 ---
 
-## 4. Broader vision (context — not implemented in this repo)
-
-This profile service is designed to plug into a larger **personalized & secure intranet AI assistant**, where
-the **orchestration tier (not the LLM) enforces SharePoint ACLs** on every search. That broader system adds an
-ingestion pipeline and an Azure AI Search index; it is described here only to show where the profile fits.
-
-### 4.1 The three protagonists (broader system)
-
-```
-SPFx web part ──user JWT + question──► Orchestration Function (security boundary)
-                                              │ search query + ACL filter + profile scope
-                                              ▼
-                                       Azure AI Search (index with per-doc ACL)
-                                              ▲ writes
-                                       Ingestion pipeline (SharePoint → AI Search)
-```
-
-### 4.2 Three distinct inputs to every search (keep them separate)
-
-| Input | Source | Role |
-|---|---|---|
-| **Identity** (`userOid` + transitive group OIDs) | Validated JWT claims (+ Graph `transitiveMemberOf` on overage) | **Security trim** vs `aclAllow*` fields |
-| **Profile** (department, country, skills…) | OBO → Graph `/me` + SharePoint UPS — **this repo** | **Relevance / business filters** + agent reasoning input |
-| **Document ACL** (`aclAllowUsers/Groups`, `aclDenyGroups`, `isPublic`) | Ingestion pipeline, per document | **The access contract**, baked into the index |
-
-- **Profile = what the user *is*** → relevance + optional business filters.
-- **Identity + groups = who the user *is*** → the ACL trim.
-- **ACL on docs = who can see *this thing*** → the security floor.
-
-The Search filter AND-combines all three. Compromising the profile cannot widen access; only validated
-identity claims can. Authorization is computed by intersecting current identity claims with per-document ACLs
-on **every** request — no caching, so a user who loses group membership sees it on the next turn.
-
-### 4.3 Why the LLM cannot subvert the filter
-
-The orchestration tier owns the only code path that calls AI Search. The agent has no Search credentials, no
-Graph credentials, and no tools that touch user data — it is a **reasoning component, not a data-access
-component**. A prompt-injected document can at worst corrupt answer text; it cannot expand the result set or
-leak content the user wasn't allowed to retrieve.
-
-### 4.4 Honest limits
-
-- **Permission freshness** = max(token TTL, index crawl interval) — ≤15 min with recommended settings.
-- **ACL fidelity** = whatever the ingestion pipeline captures (the architectural floor).
-- **Group-membership scale** affects filter construction (token overage >200 groups → `transitiveMemberOf`;
-  ~32 KB filter cap → chunk into multiple searches).
-
----
-
-## 5. Reference — does Foundry Agent Service support OBO?
+## 4. Reference — does Foundry Agent Service support OBO?
 
 The implemented design (the proxy does OBO; the MCP server does OBO as the user) is the **GA** path and does
 not depend on any preview platform feature. The matrix below records which Foundry agent auth paths *can*
@@ -273,7 +224,7 @@ carry the user's identity, drawn verbatim from Microsoft Learn — useful when e
 | Hosted-agent native attended OBO (user token present at invocation) | ✅ | Behaviour GA-documented; hosting platform is preview. |
 | Built-in / OpenAPI tools | ❌ | Anonymous, API key, or managed identity only — no user passthrough. |
 
-### 5.1 Playground path — the one remaining manual step
+### 4.1 Playground path — the one remaining manual step
 
 The proxy-brokered chat path works today end-to-end. The **Foundry Playground** path (where the hosted agent
 calls the MCP server directly) needs the project's MCP connection configured as **OAuth identity
@@ -283,7 +234,7 @@ registration). Without it, the Playground call reaches the MCP server with no us
 fields are empty. This is a one-time portal action; the MCP server code is already correct (proven by
 `scripts/test-spfx-chain.ps1`).
 
-### 5.2 Design history (resolved)
+### 4.2 Design history (resolved)
 
 Earlier iterations explored a "Shape 1 vs Shape 2" split and a Foundry **Toolbox** wrapper. Those are
 **superseded**: there is now one architecture — proxy-side OBO for the SPFx path, and native MCP OAuth
