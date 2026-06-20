@@ -10,6 +10,53 @@ signed-in user's identity via `AadHttpClient`:
 
 The browser never talks to Foundry or the MCP server directly.
 
+## Built solution in this repo: `spfx-profile-agent/`
+
+A ready-to-build SPFx **1.23** React web part is scaffolded under
+[`spfx-profile-agent/`](./spfx-profile-agent). It is already wired to the live proxy:
+
+| Wiring | Value | Where |
+|---|---|---|
+| `PROXY_RESOURCE` | `api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a` | `src/webparts/profileAgent/services/ProxyClient.ts` |
+| `PROXY_BASE` | `https://app-proxy-z6vb2tjg2j4ye.azurewebsites.net` | same |
+| `webApiPermissionRequests` | `api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a` / `access_as_user` | `config/package-solution.json` |
+
+The web part loads the profile on mount (`GET /api/profile`) and renders a chat box wired to
+`POST /api/agent/chat`, with multi-turn `previousResponseId` and OAuth-consent handling.
+
+### Build (toolchain)
+
+SPFx 1.23 tooling requires **Node 22** (not Node 24). Use nvm-windows to keep an isolated Node 22:
+
+```powershell
+nvm install 22
+nvm use 22
+cd spfx-sample\spfx-profile-agent
+npm install
+npm run build          # heft: lint + test + package -> sharepoint/solution/spfx-profile-agent.sppkg
+```
+
+`npm run build` is green with **0 warnings / 0 errors** and emits
+`sharepoint/solution/spfx-profile-agent.sppkg` (gitignored — it is a build artifact).
+
+### Local workbench
+
+```powershell
+npm run start          # heft start -> https://<tenant>.sharepoint.com/_layouts/workbench.aspx
+```
+
+### Deploy + tenant approval
+
+1. Upload `sharepoint/solution/spfx-profile-agent.sppkg` to the tenant **App Catalog**, choose
+   *Make this solution available to all sites*.
+2. Approve the API permission request in **SharePoint Admin Center → Advanced → API access**:
+   `access_as_user` on `api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a` (the SharePoint Online Client
+   Extensibility principal is the caller).
+3. Add the **ProfileAgent** web part to a page.
+
+The blueprint below documents the contract and code that this solution implements.
+
+
 ## Required SPFx version
 
 SPFx **1.18+**, TypeScript, React (or no-framework — the code is identical).

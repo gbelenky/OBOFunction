@@ -1,0 +1,23 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "whichFolder": "subdir",
+    "solutionName": "spfx-profile-agent",
+    "skipFeatureDeployment": true,
+    "useGulp": false,
+    "componentType": "webpart",
+    "template": "react",
+    "componentName": "ProfileAgent",
+    "componentDescription": "Calls OBO proxy for SharePoint profile and Foundry agent chat",
+    "plusBeta": false,
+    "isCreatingSolution": true,
+    "nodeVersion": "22.23.0",
+    "sdksVersions": {},
+    "version": "1.23.0",
+    "libraryName": "spfx-profile-agent",
+    "libraryId": "92bba88c-7d63-4c56-a765-59186197f8fc",
+    "environment": "spo",
+    "packageManager": "npm",
+    "solutionShortDescription": "spfx-profile-agent description",
+    "isDomainIsolated": false
+  }
+}

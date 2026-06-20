@@ -1,0 +1,92 @@
+@import 'pkg:@fluentui/react/dist/sass/References.scss';
+
+.profileAgent {
+  overflow: hidden;
+  padding: 1em;
+  color: "[theme:bodyText, default: #323130]";
+  color: var(--bodyText);
+  &.teams {
+    font-family: $ms-font-family-fallbacks;
+  }
+}
+
+.welcome {
+  text-align: center;
+  margin-bottom: 1em;
+}
+
+.error {
+  color: #a4262c;
+}
+
+.hint {
+  color: #605e5c;
+  font-style: italic;
+}
+
+.profileCard {
+  border: 1px solid #edebe9;
+  border-radius: 4px;
+  padding: 1em;
+  margin-bottom: 1em;
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25em 1em;
+  margin: 0.5em 0;
+
+  dt {
+    font-weight: 600;
+  }
+
+  dd {
+    margin: 0;
+  }
+}
+
+.chat {
+  border-top: 1px solid #edebe9;
+  padding-top: 1em;
+}
+
+.transcript {
+  min-height: 3em;
+  margin-bottom: 0.5em;
+}
+
+.userTurn {
+  margin: 0.25em 0;
+}
+
+.agentTurn {
+  margin: 0.25em 0;
+}
+
+.inputRow {
+  display: flex;
+  gap: 0.5em;
+}
+
+.input {
+  flex: 1;
+  padding: 0.5em;
+  border: 1px solid #8a8886;
+  border-radius: 2px;
+}
+
+.button {
+  padding: 0.5em 1em;
+  border: none;
+  border-radius: 2px;
+  background-color: "[theme:themePrimary, default:#0078d4]";
+  background-color: var(--themePrimary, #0078d4);
+  color: #ffffff;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}

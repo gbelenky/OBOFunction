@@ -1,0 +1,43 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "spfx-profile-agent-client-side-solution",
+    "id": "92bba88c-7d63-4c56-a765-59186197f8fc",
+    "version": "1.0.0.0",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "webApiPermissionRequests": [
+      { "resource": "api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a", "scope": "access_as_user" }
+    ],
+    "developer": {
+      "name": "",
+      "websiteUrl": "",
+      "privacyUrl": "",
+      "termsOfUseUrl": "",
+      "mpnId": "Undefined-1.23.0"
+    },
+    "metadata": {
+      "shortDescription": {
+        "default": "spfx-profile-agent description"
+      },
+      "longDescription": {
+        "default": "spfx-profile-agent description"
+      },
+      "screenshotPaths": [],
+      "videoUrl": "",
+      "categories": []
+    },
+    "features": [
+      {
+        "title": "spfx-profile-agent Feature",
+        "description": "The feature that activates elements of the spfx-profile-agent solution.",
+        "id": "533b5dd6-dc4d-494a-871b-2bc32cbac0e9",
+        "version": "1.0.0.0"
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/spfx-profile-agent.sppkg"
+  }
+}
