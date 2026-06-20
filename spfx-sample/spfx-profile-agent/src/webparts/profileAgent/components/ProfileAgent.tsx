@@ -2,7 +2,7 @@ import * as React from 'react';
 import styles from './ProfileAgent.module.scss';
 import type { IProfileAgentProps } from './IProfileAgentProps';
 import { escape } from '@microsoft/sp-lodash-subset';
-import { ProxyClient, UserProfile, ChatReply } from '../services/ProxyClient';
+import { ProxyClient, ChatReply } from '../services/ProxyClient';
 
 interface IChatTurn {
   role: 'user' | 'agent';
@@ -10,9 +10,6 @@ interface IChatTurn {
 }
 
 interface IProfileAgentState {
-  profile: UserProfile | undefined;
-  profileError: string | undefined;
-  profileLoading: boolean;
   input: string;
   chat: IChatTurn[];
   asking: boolean;
@@ -28,9 +25,6 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
     super(props);
     this.proxy = new ProxyClient(props.aadHttpClientFactory);
     this.state = {
-      profile: undefined,
-      profileError: undefined,
-      profileLoading: false,
       input: '',
       chat: [],
       asking: false,
@@ -40,19 +34,8 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
     };
   }
 
-  public componentDidMount(): void {
-    this.loadProfile();
-  }
-
   private toggleMaximize = (): void => {
     this.setState(prev => ({ maximized: !prev.maximized }));
-  };
-
-  private loadProfile = (): void => {
-    this.setState({ profileLoading: true, profileError: undefined });
-    this.proxy.loadProfile()
-      .then(profile => this.setState({ profile, profileLoading: false }))
-      .catch((e: Error) => this.setState({ profileError: e.message, profileLoading: false }));
   };
 
   private ask = (): void => {
@@ -91,46 +74,6 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
     }
   };
 
-  private renderProfile(): React.ReactNode {
-    const { profile, profileError, profileLoading } = this.state;
-    if (profileLoading) {
-      return <p>Loading your profile…</p>;
-    }
-    if (profileError) {
-      return <p className={styles.error}>Could not load profile: {escape(profileError)}</p>;
-    }
-    if (!profile) {
-      return undefined;
-    }
-    const extended = profile.sharePointProfile?.extendedProperties ?? profile.extendedProperties ?? {};
-    const extendedKeys = Object.keys(extended);
-    return (
-      <div className={styles.profileCard}>
-        <h3>{escape(profile.displayName)}</h3>
-        <dl className={styles.profileGrid}>
-          {profile.jobTitle ? (<><dt>Title</dt><dd>{escape(profile.jobTitle)}</dd></>) : undefined}
-          {profile.department ? (<><dt>Department</dt><dd>{escape(profile.department)}</dd></>) : undefined}
-          {profile.mail ? (<><dt>Mail</dt><dd>{escape(profile.mail)}</dd></>) : undefined}
-          {profile.officeLocation ? (<><dt>Office</dt><dd>{escape(profile.officeLocation)}</dd></>) : undefined}
-          {profile.resolvedVia ? (<><dt>Resolved via</dt><dd>{escape(profile.resolvedVia)}</dd></>) : undefined}
-        </dl>
-        {extendedKeys.length > 0 ? (
-          <>
-            <h4>SharePoint profile properties</h4>
-            <dl className={styles.profileGrid}>
-              {extendedKeys.map(k => (
-                <React.Fragment key={k}>
-                  <dt>{escape(k)}</dt>
-                  <dd>{escape(String(extended[k]))}</dd>
-                </React.Fragment>
-              ))}
-            </dl>
-          </>
-        ) : undefined}
-      </div>
-    );
-  }
-
   public render(): React.ReactElement<IProfileAgentProps> {
     const { hasTeamsContext } = this.props;
     const { input, chat, asking, chatError, consentUrl, maximized } = this.state;
@@ -139,8 +82,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
     return (
       <section className={sectionClass}>
         <div className={styles.welcome}>
-          <h2>Your profile &amp; agent</h2>
-          <div>Signed in as <strong>{escape(this.props.userDisplayName)}</strong></div>
+          <h2>Ask the agent</h2>
           <button
             type="button"
             className={styles.maxButton}
@@ -152,10 +94,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
           </button>
         </div>
 
-        {this.renderProfile()}
-
         <div className={styles.chat}>
-          <h3>Ask the agent</h3>
           <div className={styles.transcript}>
             {chat.length === 0 ? (
               <p className={styles.hint}>Try: &quot;Who am I and what are my skills?&quot;</p>
