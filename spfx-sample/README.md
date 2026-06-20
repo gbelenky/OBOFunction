@@ -49,10 +49,25 @@ npm run start          # heft start -> https://<tenant>.sharepoint.com/_layouts/
 
 1. Upload `sharepoint/solution/spfx-profile-agent.sppkg` to the tenant **App Catalog**, choose
    *Make this solution available to all sites*.
-2. Approve the API permission request in **SharePoint Admin Center → Advanced → API access**:
-   `access_as_user` on `api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a` (the SharePoint Online Client
-   Extensibility principal is the caller).
+2. Grant the web part access to the proxy API (`access_as_user` on
+   `api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a`). Use **either**:
+   - **Admin UI** — approve the request in **SharePoint Admin Center → Advanced → API access**
+     (the SharePoint Online Client Extensibility principal is the caller); **or**
+   - **Pre-authorization** — add the SharePoint Online Client Extensibility principal
+     (`08e18876-6177-487e-b8b5-cf950c1e598c`) to the proxy app registration's
+     `preAuthorizedApplications` for the `access_as_user` scope. This skips the Admin "API access"
+     approval step entirely.
 3. Add the **ProfileAgent** web part to a page.
+
+> **PnP.PowerShell deploy (scripted, used for this environment).** The tenant App Catalog can be
+> provisioned and the package added/published/installed without the Admin UI:
+> ```powershell
+> Connect-PnPOnline -Url https://<tenant>.sharepoint.com/sites/<site> -ClientId <pnp-login-app> -Tenant <tenant>.onmicrosoft.com -Interactive
+> Add-PnPApp     -Path spfx-profile-agent.sppkg -Scope Tenant -Publish
+> Install-PnPApp -Identity <app-id>
+> ```
+> The proxy API was pre-authorized for the SharePoint Online Client Extensibility principal (option 2
+> above), so no SharePoint Admin "API access" approval was required.
 
 The blueprint below documents the contract and code that this solution implements.
 
