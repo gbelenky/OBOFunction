@@ -16,7 +16,7 @@ ever stored or logged. The proxy holds **no profile logic** — it delegates all
 |---|---|---|---|
 | **Proxy** | `src/OBOFunction` | App Service (.NET 8, ASP.NET Core) | The single backend the browser talks to. Validates the SPFx user JWT, OBO-exchanges it to the MCP audience, then **delegates all profile retrieval to the Foundry agent**. Holds no Graph/SharePoint logic. Endpoint: `POST /api/agent/chat`. |
 | **MCP server** | `src/SharePointMcp` | App Service (.NET 8, ASP.NET Core) | Standalone **Model Context Protocol** server exposing `get_sharepoint_profile` over Streamable HTTP at `/mcp`. Does its own OBO → Graph + SharePoint UPS as the caller. |
-| **Hosted agent** | `src/SharePointAgent` | Foundry Hosted Agent (.NET 10, Microsoft Agent Framework) | Chat agent for the **Foundry Playground / autonomous** demo. Declares the MCP server as a Foundry-native `mcp` tool (`HostedMcpServerTool`). Holds no embedded profile logic. |
+| **Hosted agent** | `src/SharePointAgent` | Foundry Hosted Agent (.NET 10, Microsoft Agent Framework) | Chat agent for the **Foundry Playground / autonomous** demo. Declares the MCP server as a Foundry-native `mcp` tool (`HostedMcpServerTool`) for the profile, plus a **local `search_faq` tool** (Azure AI Search, filtered by the profile's country — no OBO, agent identity). Holds no embedded profile logic. |
 
 ## Architecture (one flow)
 
@@ -34,6 +34,8 @@ SPFx web part (user JWT, aud api://<proxy-app>)
 
 Playground / autonomous: Foundry Hosted Agent ──HostedMcpServerTool──► SharePointMcp
    (no user token present → MCP server falls back to its managed identity → per-user fields empty)
+                          └──local search_faq tool──► Azure AI Search faq-index
+                             (filter Location = profile country + Global; agent identity, no OBO)
 ```
 
 The proxy never reads Graph or SharePoint itself — the **MCP server** is the only component that
@@ -200,7 +202,7 @@ azd down --purge --force      # also purges Key Vault soft-delete
 ```
 src/OBOFunction       .NET 8 App Service — agent-only proxy (POST /api/agent/chat, OBO to MCP audience)
 src/SharePointMcp     .NET 8 App Service — MCP server (get_sharepoint_profile, OBO)
-src/SharePointAgent   .NET 10 Foundry hosted agent (HostedMcpServerTool → MCP server)
+src/SharePointAgent   .NET 10 Foundry hosted agent (HostedMcpServerTool → MCP server; local search_faq tool)
 infra                 Bicep (main.bicep + modules/resources.bicep, AVM-based)
 spfx-sample           Reference SPFx consumer (docs)
 scripts               test-spfx-chain.ps1, refresh-token.ps1

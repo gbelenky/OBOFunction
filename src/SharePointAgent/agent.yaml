@@ -26,6 +26,15 @@ environment_variables:
     value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
   - name: MCP_SERVER_URL
     value: ${MCP_SERVER_URL}
+  # FAQ / Q&A search tool (local, in-process; no OBO). The agent queries Azure AI Search with its
+  # own Managed Identity (grant it 'Search Index Data Reader' on the search service). Set a query
+  # key via AZURE_SEARCH_API_KEY only if you cannot use Managed Identity.
+  - name: AZURE_SEARCH_ENDPOINT
+    value: ${AZURE_SEARCH_ENDPOINT}
+  - name: AZURE_SEARCH_INDEX_NAME
+    value: ${AZURE_SEARCH_INDEX_NAME}
+  - name: AZURE_SEARCH_COUNTRY_FIELD
+    value: ${AZURE_SEARCH_COUNTRY_FIELD}
 
 code_configuration:
   runtime: dotnet_10

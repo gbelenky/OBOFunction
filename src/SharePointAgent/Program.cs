@@ -3,6 +3,8 @@ using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Foundry.Hosting;
 using Microsoft.Extensions.AI;
+using SharePointAgent.Services;
+using SharePointAgent.Tools;
 
 // ----------------------------------------------------------------------------
 // SharePointAgent — Microsoft Foundry Hosted Agent (.NET 10)
@@ -82,6 +84,37 @@ if (!string.IsNullOrWhiteSpace(mcpUserAuthorization))
 
 IList<AITool> tools = [mcpTool];
 
+// ---- Local FAQ / Q&A tool (no OBO, no user identity) ----
+// The agent owns this tool: it queries Azure AI Search for FAQ entries filtered by the user's
+// country (the index `Location` field). It needs only the country string from the profile, so it
+// runs with the agent's OWN identity (a read-only query key when configured, otherwise the
+// agent's Managed Identity / developer credential). Registered only when an endpoint is set, so
+// the agent still runs if the FAQ index is not configured.
+string? searchEndpoint =
+    FirstNonBlank(
+        Environment.GetEnvironmentVariable("AZURE_SEARCH_ENDPOINT"),
+        Environment.GetEnvironmentVariable("SEARCH_ENDPOINT"));
+
+if (!string.IsNullOrWhiteSpace(searchEndpoint))
+{
+    string searchIndex =
+        FirstNonBlank(Environment.GetEnvironmentVariable("AZURE_SEARCH_INDEX_NAME")) ?? "faq-index";
+    string countryField =
+        FirstNonBlank(Environment.GetEnvironmentVariable("AZURE_SEARCH_COUNTRY_FIELD")) ?? "Location";
+    string? searchApiKey =
+        FirstNonBlank(
+            Environment.GetEnvironmentVariable("AZURE_SEARCH_API_KEY"),
+            Environment.GetEnvironmentVariable("SEARCH_API_KEY"));
+    bool includeGlobal =
+        !string.Equals(
+            Environment.GetEnvironmentVariable("AZURE_SEARCH_INCLUDE_GLOBAL"),
+            "false", StringComparison.OrdinalIgnoreCase);
+
+    var faqService = new FaqSearchService(searchEndpoint, searchIndex, countryField, searchApiKey, includeGlobal);
+    var faqTools = new FaqTools(faqService);
+    tools.Add(AIFunctionFactory.Create(faqTools.SearchFaqAsync, name: "search_faq"));
+}
+
 const string instructions =
     "You are the SharePoint Profile Assistant. " +
     "At the START of every new conversation, FIRST call the `get_sharepoint_profile` tool " +
@@ -89,11 +122,18 @@ const string instructions =
     "(job title, department, office, skills, interests, responsibilities) in your answers. " +
     "Never ask the user for information already present in their profile. " +
     "If the tool returns null fields, work with what is available and do not invent values. " +
-    "If the tool returns `profileAvailable: false`, explain to the user — clearly and briefly — " +
+    "When the user asks a policy, IT, HR, finance, facilities or general how-to question — or asks " +
+    "which FAQs apply to them — call the `search_faq` tool, passing the user's `country` from their " +
+    "profile so results are filtered to their location (globally-applicable entries are always " +
+    "included). Answer ONLY from the returned FAQ entries and cite each FAQ's Title; do not invent " +
+    "answers. If the profile has no country, ask the user for their country/region, or proceed with " +
+    "the globally-applicable entries. " +
+    "If the profile tool returns `profileAvailable: false`, explain to the user — clearly and briefly — " +
     "that no signed-in user is present in this context (for example the Foundry Playground runs " +
     "autonomously), so per-user profile data requires invoking the agent with a user token via the " +
     "proxy's POST /api/agent/chat (OBO), an M365/Teams SSO channel, or an MCP OAuth identity-passthrough " +
-    "connection. Relay the `detail` field; do not invent profile values.";
+    "connection. Relay the `detail` field; do not invent profile values. In that case you can still " +
+    "answer FAQ questions if the user tells you their country/region.";
 
 AIAgent agent = new AIProjectClient(new Uri(projectEndpoint), credential)
     .AsAIAgent(

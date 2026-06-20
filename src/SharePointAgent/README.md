@@ -1,8 +1,13 @@
 # SharePointAgent — Microsoft Foundry Hosted Agent (.NET 10)
 
-A **hosted** Foundry agent (Microsoft Agent Framework). Its **only** tool is the standalone
-**SharePointMcp** server, declared as a Foundry-native MCP tool (`HostedMcpServerTool`). The agent
-holds **no embedded profile logic** — it asks the MCP server, which does the OBO to Graph + SharePoint.
+A **hosted** Foundry agent (Microsoft Agent Framework) with two tools:
+
+1. **`get_sharepoint_profile`** — the standalone **SharePointMcp** server, declared as a Foundry-native
+   MCP tool (`HostedMcpServerTool`). The agent holds **no embedded profile logic** — it asks the MCP
+   server, which does the OBO to Graph + SharePoint.
+2. **`search_faq`** — a **local, in-process** Azure AI Search tool (no MCP, no OBO). It queries the
+   corporate FAQ index filtered by the user's **country** (the index `Location` field) and runs with the
+   **agent's own identity**. Registered only when `AZURE_SEARCH_ENDPOINT` is set.
 
 This is the **Playground / autonomous demo** surface. The production SPFx path does **not** route auth
 through this agent — the proxy (`src/OBOFunction`, `POST /api/agent/chat`) calls the model Responses
@@ -12,14 +17,18 @@ endpoint with a per-user OBO token directly. See [`../../ARCHITECTURE.md`](../..
 
 ```
 chat ──► SharePointProfileAgent ──(Foundry-native mcp tool)──► SharePointMcp /mcp
-                                                                   │  OBO (if a user token is present)
-                                                                   ▼
-                                                            Graph /me + SharePoint UPS
+            │                                                      │  OBO (if a user token is present)
+            │                                                      ▼
+            │                                               Graph /me + SharePoint UPS
+            │
+            └──(local in-process tool)──► search_faq ──► Azure AI Search faq-index
+                                            (agent identity; filter Location = profile country + Global)
 ```
 
 - **Hosting:** `WebApplication` + `AddFoundryResponses(agent)` + `MapFoundryResponses()`; health at `/liveness`, `/readiness`. Runs unchanged locally and as a Foundry hosted agent.
 - **Agent:** `AIProjectClient(endpoint, DefaultAzureCredential).AsAIAgent(model, name, instructions, tools)`.
-- **Tool:** `new HostedMcpServerTool("SharePointMcp", MCP_SERVER_URL)` with `AllowedTools = ["get_sharepoint_profile"]` and `ApprovalMode = NeverRequire`.
+- **Profile tool:** `new HostedMcpServerTool("SharePointMcp", MCP_SERVER_URL)` with `AllowedTools = ["get_sharepoint_profile"]` and `ApprovalMode = NeverRequire`.
+- **FAQ tool:** `AIFunctionFactory.Create(faqTools.SearchFaqAsync, name: "search_faq")` over `FaqSearchService` (`Services/FaqSearchService.cs`). Builds the OData filter `Location eq '<country>' or Location eq 'Global'`, runs full-text search and returns compact camelCase JSON. The model is instructed to pass the `country` from the loaded profile; globally-applicable entries are always included so results are never empty for a country with no region-specific FAQs.
 - **Identity into the MCP server:**
   - **Playground (autonomous):** no user token → the MCP server falls back to its managed identity (app-only) → per-user fields empty. Requires a Foundry **OAuth identity-passthrough** connection to supply a real user token.
   - **Local dev:** set `MCP_USER_AUTHORIZATION` to a static dev bearer token and it is forwarded on the tool's `Authorization` header.
@@ -33,7 +42,9 @@ chat ──► SharePointProfileAgent ──(Foundry-native mcp tool)──► S
 
 ```
 src/SharePointAgent/
-  Program.cs                 # host + agent wiring + HostedMcpServerTool
+  Program.cs                 # host + agent wiring + HostedMcpServerTool + local search_faq tool
+  Services/FaqSearchService.cs  # Azure AI Search query (filter Location = country + Global)
+  Tools/FaqTools.cs          # [Description]-annotated search_faq surface for AIFunctionFactory
   agent.yaml                 # hosted-agent manifest (runtime dotnet_10)
   Properties/launchSettings.json
   SharePointAgent.csproj
@@ -41,7 +52,8 @@ src/SharePointAgent/
   .agentignore
 ```
 
-There are no Models/Services/Tools — all profile logic lives in `src/SharePointMcp`.
+Profile logic lives in `src/SharePointMcp` (called via the MCP tool); the FAQ tool is the only local
+tool and only reads the search index — it never touches Graph/SharePoint or a user token.
 
 ## Prerequisites
 
@@ -65,6 +77,11 @@ Copy-Item .env.sample .env
 | `MCP_SERVER_URL` | The SharePointMcp `/mcp` endpoint. |
 | `MCP_USER_AUTHORIZATION` | Optional static dev bearer token forwarded to the MCP tool (local only). |
 | `PORT` / `DEFAULT_AD_PORT` | Local port (default `8088`). |
+| `AZURE_SEARCH_ENDPOINT` | Azure AI Search service URL hosting the FAQ index. **Omit to disable the `search_faq` tool.** |
+| `AZURE_SEARCH_INDEX_NAME` | FAQ index name (default `faq-index`). |
+| `AZURE_SEARCH_COUNTRY_FIELD` | Filterable index field used as the country/region filter (default `Location`). |
+| `AZURE_SEARCH_API_KEY` | Optional read-only **query key** for local runs. Leave blank in prod and grant the agent's Managed Identity **`Search Index Data Reader`**. |
+| `AZURE_SEARCH_INCLUDE_GLOBAL` | Also return `Location='Global'` entries (default `true`). |
 
 ## Run & debug locally
 

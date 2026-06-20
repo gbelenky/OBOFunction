@@ -4,9 +4,9 @@ This document explains **how the signed-in user's identity flows end-to-end** in
 security reasoning behind it. For setup/run steps see [`README.md`](./README.md).
 
 > **Scope.** This repo demonstrates **how to obtain the signed-in user's profile (especially the
-> `IntranetCountry` UPS field) via the OBO chain** — §1 – §3 below. The retrieved profile is the input to a
-> **next-step search integration** (e.g. query an index for documents where `IntranetCountry=DE`), which is
-> **not yet implemented here**. **§4** is a reference matrix of which Foundry agent auth paths support OBO.
+> `IntranetCountry` UPS field) via the OBO chain** — §1 – §3 below. The retrieved profile drives a
+> **country-filtered FAQ / Q&A search** against Azure AI Search, implemented as a local tool on the hosted
+> agent — see **§5**. **§4** is a reference matrix of which Foundry agent auth paths support OBO.
 
 ---
 
@@ -241,3 +241,40 @@ Earlier iterations explored a "Shape 1 vs Shape 2" split and a Foundry **Toolbox
 identity passthrough for the Playground path. No Toolbox, no embedded profile tool inside the agent, no
 `/api/ask`. Any leftover Foundry *toolbox* or extra *connections* in the project are orphans and can be
 removed.
+
+---
+
+## 5. Country-filtered FAQ / Q&A search (agent-owned, no OBO)
+
+Once the profile is loaded (§1 – §3), the user's **country** drives a search over a corporate FAQ knowledge
+base. This is implemented as a **local, in-process tool** on the hosted agent (`src/SharePointAgent`):
+`search_faq` (`Services/FaqSearchService.cs` + `Tools/FaqTools.cs`), registered via
+`AIFunctionFactory.Create(faqTools.SearchFaqAsync, name: "search_faq")`.
+
+**Why this tool does NOT use OBO or MCP** — and deliberately differs from the profile chain:
+
+- It reads a **shared, non-personal** knowledge base (the FAQ index), not the user's personal data. There is
+  no per-user authorization boundary to enforce, so no user token is required.
+- It needs only **one value** from the profile — the country string — which the model passes as a tool
+  argument. The tool itself never sees Graph, SharePoint, or any user token.
+- It therefore runs with the **agent's own identity**: a read-only **query key** for local runs, or the
+  agent's **Managed Identity** with the **`Search Index Data Reader`** role in production (keys omitted).
+
+```
+profile.country ──► model ──(local tool call: search_faq{country, question})──► Azure AI Search faq-index
+                                                                                  filter: Location eq '<country>'
+                                                                                       or Location eq 'Global'
+```
+
+**Country → index field mapping.** The index has no `Country` field; the filterable **`Location`** field is
+used as the country/region (`AZURE_SEARCH_COUNTRY_FIELD=Location`). Valid values in the demo index are
+**Europe, North America, Latin America, Global**. The filter always OR-s in `Location='Global'` so
+universally-applicable entries are returned even when a country has no region-specific FAQs
+(`AZURE_SEARCH_INCLUDE_GLOBAL=true`, default). Single quotes in the country value are escaped to prevent
+OData filter injection.
+
+**Tool boundary.** This tool lives **only on the hosted agent** (the Playground/agent surface). The
+production SPFx → proxy path attaches the MCP profile tool to the Foundry **model** Responses call and does
+**not** execute the agent's local tools, so the SPFx path retrieves the profile but does not (today) invoke
+`search_faq`. Wiring the FAQ tool into the proxy path would require a proxy-side function-call loop; it is
+intentionally out of scope here (the agent owns its tools).
