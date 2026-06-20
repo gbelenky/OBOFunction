@@ -118,6 +118,14 @@ can read **any** user's profile at **any** time, and audit logs show **the hotel
 the door. If the requirement is "each user sees only their own data, and the trace proves it," the master
 key cannot provide it — that is precisely what the personal-key-card (OBO) model in §0 is for.
 
+**Security & compliance risks (app-only):**
+- **Over-broad access / no least privilege.** One credential reads *every* user's profile; a leaked secret exposes all of them at once (large blast radius).
+- **No per-user authorization.** The app isn't constrained to the data the signed-in user may see — there is no user-scoped boundary to enforce.
+- **Weak auditability.** Traces attribute every read to the app identity, not the end user, so "who accessed whose data" cannot be reconstructed.
+- **Standing privilege & secret risk.** A long-lived, admin-consented app secret is a persistent high-value target; rotation and storage become critical.
+- **Data-protection exposure.** Bulk readability of personal profile data raises GDPR/data-minimization and purpose-limitation concerns (processing beyond the acting user's need-to-know).
+- **Consent bypass.** Per-user consent is skipped entirely, so users have no visibility into or control over access to their data.
+
 > **This repo implements §0 (personal key cards / OBO).** §0a is documented only to make the contrast
 > explicit, because the two are easy to confuse and have very different security and compliance postures.
 
