@@ -37,5 +37,16 @@ public sealed record UserProfile
 
     /// <summary>Custom UPS attribute <c>IntranetCountry</c>.</summary>
     public string? Country { get; init; }
+
+    /// <summary>
+    /// True when a delegated user token was present and the profile was resolved on behalf of the
+    /// signed-in user. False when only an application identity is available (e.g. the Foundry
+    /// passthrough connection did not deliver a user token) — the remaining fields are then empty
+    /// and callers should degrade gracefully rather than fail.
+    /// </summary>
+    public bool ProfileAvailable { get; init; } = true;
+
+    /// <summary>Optional human-readable note explaining a degraded result.</summary>
+    public string? Note { get; init; }
 }
 

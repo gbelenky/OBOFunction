@@ -46,13 +46,37 @@ public sealed class SharePointProfileService
     {
         var graph = new GraphServiceClient(_credential, _graphScopes);
 
-        var me = await graph.Me.GetAsync(rc =>
+        Microsoft.Graph.Models.User? me;
+        try
         {
-            rc.QueryParameters.Select =
-            [
-                "displayName", "givenName", "surname", "mail", "userPrincipalName", "jobTitle"
-            ];
-        }, ct).ConfigureAwait(false);
+            me = await graph.Me.GetAsync(rc =>
+            {
+                rc.QueryParameters.Select =
+                [
+                    "displayName", "givenName", "surname", "mail", "userPrincipalName", "jobTitle"
+                ];
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Graph /me requires a delegated (user) token. Under a pure application identity (the
+            // deployed UAMI when no user token was delivered by the Foundry passthrough connection)
+            // it throws "only valid with delegated authentication flow". Don't abort the agent turn:
+            // return a profileAvailable:false result so the model can continue (e.g. an FAQ search
+            // falls back to global/default results). The full per-user profile requires the Foundry
+            // OAuth identity-passthrough connection to deliver the user's token to this server.
+            Console.Error.WriteLine(
+                $"[SharePointProfileService] Graph /me failed (resolvedVia={_resolvedVia}); " +
+                $"returning profileAvailable:false. {ex.GetType().Name}: {ex.Message}");
+
+            return new UserProfile
+            {
+                ProfileAvailable = false,
+                Note = "No signed-in user token was delivered to the profile service, so the user " +
+                       "profile could not be retrieved. Continue without profile data; any " +
+                       "country-filtered features should fall back to global/default results."
+            };
+        }
 
         UpsFields ups = default;
         if (_allowSharePointUps && !string.IsNullOrWhiteSpace(_sharePointRootSiteUrl))

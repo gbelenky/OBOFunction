@@ -48,10 +48,13 @@ public sealed class ProfileMcpTools
     {
         var (credential, isUserToken) = _credentialProvider.Resolve();
 
-        // Both identities can mint a SharePoint-audience token now: the user path uses
-        // OnBehalfOfCredential (fresh OBO exchange per scope) and the dev path uses
-        // DefaultAzureCredential, so the SharePoint UPS call is always attempted and custom
-        // attributes surface in every context.
+        // The user path uses OnBehalfOfCredential (fresh OBO exchange per scope), so a single
+        // inbound token mints both a Graph-audience token for /me and a SharePoint-audience token
+        // for the User Profile Service. The dev path uses DefaultAzureCredential (az login), which
+        // is also a delegated user and can call /me. Only a pure application identity (e.g. the
+        // deployed UAMI when the Foundry passthrough delivered no user token) cannot call /me — the
+        // service detects that and degrades gracefully instead of throwing, so the agent turn can
+        // continue (e.g. run an FAQ search with no country filter).
         var service = new SharePointProfileService(
             credential,
             _sharePointRootSiteUrl,

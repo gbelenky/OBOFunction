@@ -175,20 +175,14 @@ module proxyApp 'br/public:avm/res/web/site:0.11.1' = {
         'Foundry__ProjectEndpoint': foundryProjectEndpoint
         'Foundry__AgentId': foundryAgentId
         'Foundry__AgentName': 'SharePointProfileAgent'
-
-        // Leg ② — SharePointMcp attached as an mcp tool, called as the signed-in user.
-        'Mcp__ServerUrl': mcpServerUrl
-        'Mcp__ServerLabel': 'SharePointMcp'
+        // The proxy calls ONLY the hosted agent (tool-agnostic). The agent owns its own tools.
+        'Foundry__AgentResponsesUrl': '${foundryProjectEndpoint}/agents/SharePointProfileAgent/endpoint/protocols/openai/responses?api-version=v1'
 
         'KeyVault__Uri': kv.outputs.uri
         'AZURE_CLIENT_ID': uami.outputs.clientId
       },
       hasClientSecret ? {
         'AzureAd__ClientSecret': '@Microsoft.KeyVault(VaultName=${kvName};SecretName=AzureAd--ClientSecret)'
-      } : {},
-      hasMcpClient ? {
-        // OBO target audience = the MCP server's app registration.
-        'Mcp__UserTokenScope': 'api://${mcpClientId}/.default'
       } : {}
     )
   }

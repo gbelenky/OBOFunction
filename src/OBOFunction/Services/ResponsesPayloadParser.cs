@@ -34,6 +34,20 @@ public static class ResponsesPayloadParser
                 ConsentUrl: consentUrl);
         }
 
+        // --- Surface a failed run (e.g. a tool error) instead of returning an empty reply. ---
+        if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.String
+            && string.Equals(st.GetString(), "failed", StringComparison.OrdinalIgnoreCase))
+        {
+            var message = "The agent run failed.";
+            if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object
+                && err.TryGetProperty("message", out var em) && em.ValueKind == JsonValueKind.String)
+            {
+                var s = em.GetString();
+                if (!string.IsNullOrWhiteSpace(s)) message = s!;
+            }
+            return new AgentChatReply(message, id, Status: "failed");
+        }
+
         if (root.TryGetProperty("output_text", out var ot) && ot.ValueKind == JsonValueKind.String)
         {
             return new AgentChatReply(ot.GetString() ?? "", id);
