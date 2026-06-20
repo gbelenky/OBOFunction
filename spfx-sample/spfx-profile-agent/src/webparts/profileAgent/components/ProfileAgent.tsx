@@ -1,7 +1,6 @@
 import * as React from 'react';
 import styles from './ProfileAgent.module.scss';
 import type { IProfileAgentProps } from './IProfileAgentProps';
-import { escape } from '@microsoft/sp-lodash-subset';
 import { ProxyClient, ChatReply } from '../services/ProxyClient';
 
 interface IChatTurn {
@@ -124,7 +123,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
               chat.map((t, i) => (
                 <div key={i} className={t.role === 'user' ? styles.userTurn : styles.agentTurn}>
                   <strong>{t.role === 'user' ? 'You' : 'Agent'}:</strong>{' '}
-                  <span style={{ whiteSpace: 'pre-wrap' }}>{escape(t.text)}</span>
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{t.text}</span>
                 </div>
               ))
             )}
@@ -135,7 +134,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
               <a href={consentUrl} target="_blank" rel="noreferrer">Grant consent</a>, then ask again.
             </p>
           ) : undefined}
-          {chatError ? <p className={styles.error}>{escape(chatError)}</p> : undefined}
+          {chatError ? <p className={styles.error}>{chatError}</p> : undefined}
           <div className={styles.inputRow}>
             <input
               type="text"
