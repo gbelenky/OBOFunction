@@ -1,21 +1,10 @@
 import { AadHttpClient, AadHttpClientFactory, HttpClientResponse } from '@microsoft/sp-http';
 
 // The proxy API app registration (api://<proxy-app-client-id>) and its public base URL.
-// The browser talks ONLY to the proxy; it fronts both /api/profile and /api/agent/chat.
+// The browser talks ONLY to the proxy; it fronts the /api/agent/chat endpoint, which
+// delegates all profile data retrieval to the Foundry agent (per-user MCP tool).
 export const PROXY_RESOURCE = 'api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a';
 export const PROXY_BASE = 'https://app-proxy-z6vb2tjg2j4ye.azurewebsites.net';
-
-export interface UserProfile {
-  id: string;
-  displayName: string;
-  jobTitle?: string;
-  department?: string;
-  mail?: string;
-  officeLocation?: string;
-  resolvedVia?: string;
-  sharePointProfile?: { extendedProperties?: Record<string, string> };
-  extendedProperties?: Record<string, string>;
-}
 
 export interface ChatReply {
   reply: string;
@@ -24,7 +13,7 @@ export interface ChatReply {
   consentUrl?: string;
 }
 
-/** Thin client over the OBO proxy. One AadHttpClient (proxy audience) serves both endpoints. */
+/** Thin client over the OBO proxy's agent-chat endpoint. */
 export class ProxyClient {
   private client: AadHttpClient | undefined;
   private previousResponseId: string | undefined = undefined;
@@ -36,18 +25,6 @@ export class ProxyClient {
       this.client = await this.factory.getClient(PROXY_RESOURCE);
     }
     return this.client;
-  }
-
-  public async loadProfile(): Promise<UserProfile> {
-    const client = await this.getClient();
-    const res: HttpClientResponse = await client.get(
-      `${PROXY_BASE}/api/profile`,
-      AadHttpClient.configurations.v1
-    );
-    if (!res.ok) {
-      throw new Error(`profile ${res.status}: ${await res.text()}`);
-    }
-    return (await res.json()) as UserProfile;
   }
 
   /**

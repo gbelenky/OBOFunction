@@ -9,13 +9,13 @@ using OBOFunction.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------------------
-// OBOFunction — SharePoint profile + agent-chat proxy (OBO), hosted on App Service.
+// OBOFunction — agent-chat proxy (OBO), hosted on App Service.
 //
-// Refactored from an Azure Functions isolated worker to a plain ASP.NET Core Web API
-// so it can run as an App Service Web App alongside the SharePointMcp API. Endpoints,
-// auth (Microsoft.Identity.Web JWT + MSAL OBO), and DTOs are unchanged:
-//   GET  /api/profile     -> validated user JWT -> OBO -> Graph /me + SharePoint UPS
-//   POST /api/agent/chat  -> validated user JWT -> Foundry hosted agent (managed identity)
+// The proxy ONLY delegates profile data retrieval to the Foundry agent: it OBO-exchanges
+// the inbound SPFx user token to the SharePointMcp audience and attaches it to the agent's
+// `mcp` tool, so the agent (model + MCP) reads the profile AS THE USER. The proxy never
+// reads Graph/SharePoint itself.
+//   POST /api/agent/chat  -> validated user JWT -> OBO -> Foundry model + per-user MCP tool
 // ---------------------------------------------------------------------------
 
 // Key Vault as a configuration source (secrets referenced by name, MSI to read).
@@ -45,7 +45,6 @@ builder.Services.AddCors(o => o.AddPolicy(CorsPolicy, p =>
 }));
 
 builder.Services.AddScoped<IUserTokenAccessor, UserTokenAccessor>();
-builder.Services.AddScoped<IGraphProfileService, GraphProfileService>();
 builder.Services.AddSingleton<IAgentChatClient, AgentChatClient>();
 
 var app = builder.Build();
@@ -57,33 +56,6 @@ app.UseAuthorization();
 // Health probes (anonymous) for App Service / load balancers.
 app.MapGet("/liveness", () => Results.Ok("Healthy")).AllowAnonymous();
 app.MapGet("/readiness", () => Results.Ok("Ready")).AllowAnonymous();
-
-// GET /api/profile — the signed-in user's Graph + SharePoint profile (OBO).
-app.MapGet("/api/profile", [Authorize] async (
-    HttpRequest req,
-    IGraphProfileService graph,
-    IUserTokenAccessor tokens,
-    ILoggerFactory loggerFactory,
-    CancellationToken ct) =>
-{
-    var logger = loggerFactory.CreateLogger("ProfileEndpoint");
-    try
-    {
-        var assertion = tokens.GetBearerToken(req);
-        var profile = await graph.GetMyProfileAsync(assertion, ct);
-        return Results.Ok(profile);
-    }
-    catch (UnauthorizedAccessException ex)
-    {
-        logger.LogWarning(ex, "Unauthorized profile request.");
-        return Problem(ex.Message, "Unauthorized", StatusCodes.Status401Unauthorized);
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Profile fetch failed.");
-        return Problem(ex.Message, "Graph call failed", StatusCodes.Status502BadGateway);
-    }
-});
 
 // POST /api/agent/chat — server-side proxy to the Foundry hosted agent.
 app.MapPost("/api/agent/chat", [Authorize] async (
