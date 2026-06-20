@@ -10,6 +10,69 @@ security reasoning behind it. For setup/run steps see [`README.md`](./README.md)
 
 ---
 
+## 0. OBO in one picture — the hotel check-in analogy
+
+Use this to explain the design to anyone non-technical. The whole flow is a hotel stay where the
+guest checks in **once** and every desk afterwards issues a **single-purpose key card in the guest's name**.
+
+**The one rule:** 🛂 **only the Passport Office issues cards.** The Front Desk and Concierge can **never**
+make their own — every key card is requested from, and printed by, the Passport Office. To get a card, a
+desk must show **two** things:
+
+1. 🎫 its own **staff badge** — proves *which desk* is asking → the **client secret**
+2. 🪪 the **guest's current card** — proves *"this guest sent me"* → the **user's token (the OBO assertion)**
+
+| Hotel | This system |
+|---|---|
+| 🧳 Guest | The signed-in user |
+| 🛂 Passport Office (issues every card) | Microsoft Entra (issues every token) |
+| 🏨 Front Desk | Proxy (`src/OBOFunction`) — confidential client |
+| 🛎️ Concierge | MCP server (`src/SharePointMcp`) — confidential client |
+| 🏊 Pool / 🍽️ Restaurant | Microsoft Graph / SharePoint (the real data) |
+
+```
+🧳 Guest ──shows passport──▶ 🛂 Passport Office
+                              🛂 issues 🟦 Card 1 (Front Desk), in the guest's name
+   │  guest gives 🟦 Card 1 to the Front Desk
+   ▼
+🏨 Front Desk ──"this guest sent me" (🟦 Card 1 + 🎫 front-desk badge)──▶ 🛂 Passport Office
+                              🛂 issues 🟩 Card 2 (Concierge), in the guest's name
+   │  Front Desk passes 🟩 Card 2 to the Concierge
+   ▼
+🛎️ Concierge ──"this guest sent me" (🟩 Card 2 + 🎫 concierge badge)──▶ 🛂 Passport Office
+                              🛂 issues 🟪 Card 3 (Pool) + 🟧 Card 4 (Restaurant)
+   ▼
+🏊 Pool        🍽️ Restaurant   ← each opens only with its own card, always in the guest's name
+```
+
+| Step | Who asks 🛂 | What they present | 🛂 issues |
+|---|---|---|---|
+| 1 | 🧳 Guest | the **passport** (sign-in) | 🟦 card for Front Desk |
+| 2 | 🏨 Front Desk | "**this guest sent me**" (🟦 card) + 🎫 badge | 🟩 card for Concierge |
+| 3 | 🛎️ Concierge | "**this guest sent me**" (🟩 card) + 🎫 badge | 🟪 Pool + 🟧 Restaurant cards |
+
+**Two points to stress:**
+
+- **The desks are middlemen, not card-printers.** Front Desk and Concierge never create access — each goes
+  *back to the Passport Office* and says "this guest sent me." Technically: every service calls **Entra's
+  token endpoint** to mint the next token; it can't forge one.
+- **"This guest sent me" must be backed by the guest's real card.** A desk can't merely *claim* a guest sent
+  it — it hands over the guest's **actual signed token** as proof. No guest card → the Passport Office refuses
+  → no new card. That is what keeps every card in the **guest's** name instead of the hotel's.
+
+> **Why this beats the "master key" (app-only) approach:** the alternative is giving the Concierge a master
+> key that opens **every** guest's room with no guest present. Fewer steps, but the app can read **anyone's**
+> data, anytime. OBO = **personal key cards** (per-user, least-privilege, auditable); app-only = **master key**.
+
+**One-sentence version:** *No desk makes its own keys — each goes back to the Passport Office and says "this
+guest sent me," showing the guest's current card plus its own staff badge. The Passport Office prints the
+next door's card, always in the guest's name. That's how the guest's identity reaches the pool and
+restaurant, while no single card opens the whole hotel.*
+
+The sections below map this analogy to the real components, tokens, and app registrations.
+
+---
+
 ## 1. The three components and the one identity chain
 
 | Component | Role |
