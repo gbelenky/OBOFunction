@@ -73,6 +73,57 @@ The sections below map this analogy to the real components, tokens, and app regi
 
 ---
 
+## 0a. The customer's alternative — the "master key" (app-only) story
+
+Some teams take a different approach to reach the same SharePoint data. It is worth telling **as the same
+hotel**, so the trade-off is obvious. (A real customer of ours uses exactly this model to read a custom
+SharePoint profile field, `IntranetCountry`.)
+
+In this version there is **no check-in**. Instead, the hotel manager gives the Concierge a **master key**,
+signed off **once** by the building owner, that opens **every guest's room** — whether or not the guest is
+present, and without the guest ever knowing.
+
+| Hotel | Customer's system |
+|---|---|
+| 🛂 Passport Office | Microsoft Entra |
+| 🏛️ Building owner (signs off the master key once) | **Tenant admin** granting **admin consent** |
+| 🛎️ Concierge holding the master key | An Entra app with an **application permission** (`SharePoint User.Read.All`) |
+| 🚪 Every guest's room | **Every** user's SharePoint profile |
+| 🧳 The guest | **Not involved** — never checks in, never consents |
+
+```
+🏛️ Building owner ──"approve this once"──▶ 🛂 Passport Office
+                                            🛂 issues 🗝️ a MASTER KEY to the Concierge (in the HOTEL's name)
+   ▼
+🛎️ Concierge ──🗝️ master key──▶ 🚪 any guest's room (no guest present, no per-guest check)
+```
+
+**How it differs from the check-in (OBO) story — same hotel, three changes:**
+
+| | 🟦 Personal key cards (OBO / user tokens) | 🗝️ Master key (app-only + admin consent) |
+|---|---|---|
+| Who checks in? | The guest, every time | **Nobody** — approved once by the owner |
+| Whose name is the key in? | The **guest's** | The **hotel's (the app's)** |
+| Which rooms can it open? | Only **that guest's** room | **Every** guest's room |
+| "This guest sent me"? | Required at every desk | **Never said** — no guest in the loop |
+| SharePoint call it uses | `GetMyProperties` ("my own profile, as me") | `GetPropertiesFor(accountName)` ("look up *anyone* by name") |
+| Microsoft's name for it | OAuth **identity passthrough** | Microsoft Entra **app / agent identity** |
+| Per-user consent & authorization | ✅ enforced by the token chain | ❌ bypassed entirely |
+
+**When the master key is a reasonable choice:** background jobs, batch enrichment, or system-to-system
+reads where **there is no signed-in user** and an admin has deliberately accepted that the app can read
+everyone. It is simpler (one consent, no check-in) and sometimes unavoidable.
+
+**The trade-off to state plainly to a customer:** the master key removes the guest from the loop. The app
+can read **any** user's profile at **any** time, and audit logs show **the hotel**, not the guest, opening
+the door. If the requirement is "each user sees only their own data, and the trace proves it," the master
+key cannot provide it — that is precisely what the personal-key-card (OBO) model in §0 is for.
+
+> **This repo implements §0 (personal key cards / OBO).** §0a is documented only to make the contrast
+> explicit, because the two are easy to confuse and have very different security and compliance postures.
+
+---
+
 ## 1. The three components and the one identity chain
 
 | Component | Role |
