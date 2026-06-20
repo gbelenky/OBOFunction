@@ -2,8 +2,8 @@
 
 A standalone **Model Context Protocol (MCP)** server (.NET 8, ASP.NET Core) exposing one tool,
 `get_sharepoint_profile`, over MCP **Streamable HTTP** at `/mcp`. It returns the caller's Microsoft
-Graph `/me` profile **and** the full SharePoint User Profile Service (UPS) — including custom
-attributes (Country, Language, Skills, Interests, …).
+Graph `/me` profile **and** selected SharePoint User Profile Service (UPS) fields — including custom
+attributes (Country, Responsibilities, Past projects, Interests).
 
 Consumed two ways, **same code, same identity model**:
 - the **proxy** (`src/OBOFunction`, `POST /api/agent/chat`) attaches a per-user token to the Foundry

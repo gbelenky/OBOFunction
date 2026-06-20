@@ -136,17 +136,14 @@ key cannot provide it — that is precisely what the personal-key-card (OBO) mod
 | Component | Role |
 |---|---|
 | **SPFx web part** | Auth boundary. Mints the user JWT (`AadHttpClient`, aud `api://<proxy-app>`). Holds no secrets. |
-| **Proxy** (`src/OBOFunction`, App Service) | The only confidential client. Validates the JWT, performs OBO, brokers the Foundry call. |
+| **Proxy** (`src/OBOFunction`, App Service) | The only confidential client. Validates the JWT, OBO-exchanges it to the MCP audience, and brokers the Foundry call. Holds **no** Graph/SharePoint logic — it delegates all profile retrieval to the agent. |
 | **MCP server** (`src/SharePointMcp`, App Service) | Standalone MCP server; `get_sharepoint_profile` does its own OBO → Graph + SharePoint UPS *as the user*. |
 | **Hosted agent** (`src/SharePointAgent`, Foundry) | Playground/autonomous demo; references the MCP server as a Foundry-native `mcp` tool. |
 
-Two request paths, both carrying the **same** signed-in user identity:
+One request path, carrying the **same** signed-in user identity all the way to SharePoint:
 
 ```
-(A) profile read
-SPFx ──user JWT──► Proxy ──OBO──► Graph /me + SharePoint UPS ──► UserProfile
-
-(B) chat with per-user tool
+chat with per-user tool
 SPFx ──user JWT──► Proxy
    leg ① proxy app token (DefaultAzureCredential, https://ai.azure.com/.default) authorizes the call
    leg ② OBO: user JWT → MCP-audience token (api://<mcp-app>/.default), attached to the mcp tool
@@ -154,6 +151,9 @@ SPFx ──user JWT──► Proxy
    Foundry model Responses (gpt-4.1-mini)  ──forwards the per-user token──►  SharePointMcp /mcp
                                                                               ──OBO──► Graph + SharePoint UPS
 ```
+
+The proxy never reads Graph or SharePoint itself; the agent retrieves and formats the profile, and the
+MCP server is the only component that touches the profile store (always as the signed-in user).
 
 **Why the proxy exists (three independent reasons):**
 1. **SPFx can't be a confidential client.** It's a public, third-party SharePoint app; it cannot safely hold the OBO client secret.
@@ -167,7 +167,7 @@ JWT and every OBO access token are validated, used, and discarded — never logg
 
 | App reg | Audience | OBO performed by it | Why it's needed |
 |---|---|---|---|
-| **Proxy API** | `api://<proxy-app>` | user → Graph/SharePoint (path A); user → MCP audience (path B leg ②) | The token SPFx mints; the proxy is its confidential client. |
+| **Proxy API** | `api://<proxy-app>` | user → MCP audience (leg ②) | The token SPFx mints; the proxy is its confidential client. It OBOs **only** to the MCP audience. |
 | **MCP API** | `api://<mcp-app>` | user → Graph/SharePoint (as the user) | A distinct audience so the proxy's OBO token can target the MCP server, which then OBOs downstream. |
 
 A **separate MCP audience** is mandatory, not cosmetic: per Microsoft's MCP-authentication guidance, an MCP
@@ -181,12 +181,12 @@ Both app secrets live in Key Vault, surfaced as config via managed identity.
 
 ## 3. Why custom SharePoint UPS fields require the user's identity
 
-Custom User Profile Service attributes (Country, Language, Skills, Interests, Responsibilities, past
-projects…) are readable only through a **SharePoint-consented token**:
+Custom User Profile Service attributes (Country, Responsibilities, Past projects, Interests…) are
+readable only through a **SharePoint-consented token**:
 
-- **User mode** (path A, and path B once the user token reaches the MCP server) → `GetMyProperties` with an
+- **User mode** (once the user token reaches the MCP server via the OBO chain) → `GetMyProperties` with an
   OBO user token returns the full UPS including custom `ExtendedProperties`. Proven by
-  `scripts/test-spfx-chain.ps1` (`"ResolvedVia": "user"`, real `country`, skills, interests).
+  `scripts/test-spfx-chain.ps1` (`"ResolvedVia": "user"`, real `country`, interests, past projects).
 - **App-only mode** (a hosted agent's managed identity with no user token, or `DefaultAzureCredential` =
   Azure CLI app) lacks SharePoint delegated consent → `GetMyProperties` 401s → custom fields are empty. This
   is an **identity/consent** outcome, by design — not a code bug.
@@ -268,14 +268,14 @@ carry the user's identity, drawn verbatim from Microsoft Learn — useful when e
 
 | Path | User passthrough | Notes |
 |---|---|---|
-| **Proxy-side OBO** (this repo, path A + path B leg ②) | ✅ | GA libraries (`Microsoft.Identity.Web` + Graph SDK). Single confidential client. |
+| **Proxy-side OBO** (this repo, leg ②) | ✅ | GA libraries (`Microsoft.Identity.Web`). The proxy OBOs only to the MCP audience; the MCP server then OBOs to Graph/SharePoint. Single confidential client. |
 | **MCP server OAuth identity passthrough** (Foundry connection forwards the user token) | ✅ | The documented way for the *Playground/hosted-agent* path to reach the MCP server as the user. Requires a Foundry **OAuth** connection + per-user consent + **Foundry User** role, same tenant. |
 | Hosted-agent native attended OBO (user token present at invocation) | ✅ | Behaviour GA-documented; hosting platform is preview. |
 | Built-in / OpenAPI tools | ❌ | Anonymous, API key, or managed identity only — no user passthrough. |
 
 ### 5.1 Playground path — the one remaining manual step
 
-Path B (proxy-brokered chat) works today end-to-end. The **Foundry Playground** path (where the hosted agent
+The proxy-brokered chat path works today end-to-end. The **Foundry Playground** path (where the hosted agent
 calls the MCP server directly) needs the project's MCP connection configured as **OAuth identity
 passthrough** (Custom → MCP, client = MCP app `api://<mcp-app>`, tenant authorize/token URLs, scopes
 `api://<mcp-app>/access_as_user offline_access`, then add the portal redirect URL to the MCP app

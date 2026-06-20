@@ -169,9 +169,7 @@ module proxyApp 'br/public:avm/res/web/site:0.11.1' = {
         'AzureAd__ClientId': aadClientId
         'AzureAd__Audience': 'api://${aadClientId}'
 
-        'Graph__Scopes': 'User.Read'
         'SharePoint__RootSiteUrl': 'https://${sharepointTenantHostname}'
-        'SharePoint__Scopes': 'AllSites.Read User.Read.All'
         'SharePoint__TenantHostname': sharepointTenantHostname
 
         'Foundry__ProjectEndpoint': foundryProjectEndpoint

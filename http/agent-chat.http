@@ -1,0 +1,42 @@
+# Local dev tests for OBOFunction — agent-chat endpoint
+#
+# Requires: REST Client extension (humao.rest-client)
+#
+# The proxy exposes ONLY POST /api/agent/chat (plus /liveness, /readiness). It validates the
+# inbound user JWT (aud api://<proxy-app>), OBO-exchanges it to the MCP audience, and delegates
+# ALL profile retrieval to the Foundry agent (which calls the SharePointMcp get_sharepoint_profile
+# tool as the signed-in user). The proxy never reads Graph/SharePoint itself.
+#
+# Token strategy: shell out to `az account get-access-token`. Never commit a real token.
+#   az account get-access-token --resource api://<proxy-app-client-id> --query accessToken -o tsv | Set-Clipboard
+#
+# Alternative: set an env var and use {{$processEnv OBO_TOKEN}} (launch `code .` from the same shell):
+#   $env:OBO_TOKEN = az account get-access-token --resource api://<proxy-app-client-id> --query accessToken -o tsv
+
+@functionUrl = http://localhost:7071
+
+# Paste a freshly minted token here when testing (Bearer prefix added below). DO NOT COMMIT IT.
+@token = PASTE_PROXY_USER_TOKEN_HERE
+
+### Liveness
+GET {{functionUrl}}/liveness
+
+### Ask the agent — using the pasted @token above
+POST {{functionUrl}}/api/agent/chat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message": "Who am I and what are my interests?",
+  "previousResponseId": null
+}
+
+### Ask the agent — using the OBO_TOKEN env var (launch `code .` from the same shell)
+POST {{functionUrl}}/api/agent/chat
+Authorization: Bearer {{$processEnv OBO_TOKEN}}
+Content-Type: application/json
+
+{
+  "message": "List my profile.",
+  "previousResponseId": null
+}

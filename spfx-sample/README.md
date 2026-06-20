@@ -1,12 +1,12 @@
-# SPFx sample — consuming the profile API and chatting with the agent
+# SPFx sample — chatting with the profile agent
 
-An SPFx web part calls **one backend** (the proxy, `src/OBOFunction`) for two things, both with the
+An SPFx web part calls **one backend** (the proxy, `src/OBOFunction`) for a single thing, with the
 signed-in user's identity via `AadHttpClient`:
 
-1. **`GET /api/profile`** — the user's Microsoft Graph + SharePoint profile (OBO).
-2. **`POST /api/agent/chat`** — chat. The proxy calls the Foundry model server-side and attaches the
-   **SharePointMcp** server as a per-user `mcp` tool, so the agent reasons over the *real signed-in
-   user's* profile.
+- **`POST /api/agent/chat`** — chat. The proxy validates the user JWT, OBO-exchanges it to the MCP
+  audience, calls the Foundry model server-side, and attaches the **SharePointMcp** server as a per-user
+  `mcp` tool — so the agent retrieves and reasons over the *real signed-in user's* profile. The proxy
+  itself holds no profile logic.
 
 The browser never talks to Foundry or the MCP server directly.
 
@@ -21,8 +21,9 @@ A ready-to-build SPFx **1.23** React web part is scaffolded under
 | `PROXY_BASE` | `https://app-proxy-z6vb2tjg2j4ye.azurewebsites.net` | same |
 | `webApiPermissionRequests` | `api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a` / `access_as_user` | `config/package-solution.json` |
 
-The web part loads the profile on mount (`GET /api/profile`) and renders a chat box wired to
-`POST /api/agent/chat`, with multi-turn `previousResponseId` and OAuth-consent handling.
+On mount the web part auto-sends a greeting prompt to `POST /api/agent/chat`; the agent greets the user
+by name and renders their profile as a formatted list. The chat box supports multi-turn
+`previousResponseId` and OAuth-consent handling.
 
 ### Build (toolchain)
 
@@ -99,7 +100,7 @@ SPFx ──[AadHttpClient, user JWT]──► proxy POST /api/agent/chat
 ## Step 1 — the proxy endpoint (already implemented)
 
 `POST /api/agent/chat` (in `src/OBOFunction/Program.cs`, logic in `Services/AgentChatClient.cs`)
-validates the SPFx user token (audience `api://<proxy-app>`, same as `/api/profile`), then:
+validates the SPFx user token (audience `api://<proxy-app>`), then:
 
 - **leg ①** authorizes the Foundry **model** Responses call with the proxy's own identity (`DefaultAzureCredential` — managed identity in Azure);
 - **leg ②** OBO-exchanges the user token for the **MCP server's audience** and places it in the `mcp` tool's `authorization` field; Foundry forwards it to the MCP server, which does its own OBO to Graph + SharePoint.
@@ -134,7 +135,7 @@ App settings (and grant the proxy's managed identity the **Azure AI User** role 
 
 ## Step 2 — `package-solution.json`
 
-The web part only needs permission to the **proxy API** (it fronts both endpoints):
+The web part only needs permission to the **proxy API** (its single endpoint):
 
 ```json
 {
@@ -150,7 +151,7 @@ The web part only needs permission to the **proxy API** (it fronts both endpoint
 }
 ```
 
-## Step 3 — web part: profile + chat
+## Step 3 — web part: chat with auto-greeting
 
 ```ts
 import { AadHttpClient, HttpClientResponse } from "@microsoft/sp-http";
@@ -158,7 +159,6 @@ import { AadHttpClient, HttpClientResponse } from "@microsoft/sp-http";
 const RESOURCE = "api://<proxy-app-client-id>";
 const PROXY_BASE = "https://app-proxy-<token>.azurewebsites.net";
 
-interface UserProfile { id: string; displayName: string; jobTitle?: string; department?: string; }
 interface ChatReply { reply: string; responseId: string; status: string; consentUrl?: string | null; }
 
 export default class ProfileAgentWebPart /* ... */ {
@@ -167,13 +167,6 @@ export default class ProfileAgentWebPart /* ... */ {
 
   public async onInit(): Promise<void> {
     this.client = await this.context.aadHttpClientFactory.getClient(RESOURCE);
-  }
-
-  public async loadProfile(): Promise<UserProfile> {
-    const res: HttpClientResponse = await this.client.get(
-      `${PROXY_BASE}/api/profile`, AadHttpClient.configurations.v1);
-    if (!res.ok) throw new Error(`profile ${res.status}: ${await res.text()}`);
-    return res.json();
   }
 
   public async ask(message: string): Promise<string> {
@@ -189,11 +182,18 @@ export default class ProfileAgentWebPart /* ... */ {
     this.previousResponseId = data.responseId;         // keep the thread for multi-turn
     return data.reply;
   }
+
+  // Fire once on mount: the agent greets by name and lists the profile.
+  public async greet(): Promise<string> {
+    return this.ask("Greet me by my first name and list my profile as a formatted bullet list.");
+  }
 }
 ```
 
-Render your own chat box and wire it to `ask()`. The agent calls `get_sharepoint_profile` on the first
-turn (as the signed-in user), so it already knows who it's talking to — no need to pass the profile in.
+Render your own chat box and wire it to `ask()`, and call `greet()` on mount. The agent calls
+`get_sharepoint_profile` (as the signed-in user), so it already knows who it's talking to — no need to
+pass the profile in. The agent composes the greeting and the formatted list; render its reply with
+`white-space: pre-wrap` so line breaks and bullets display.
 
 ## Admin approval
 

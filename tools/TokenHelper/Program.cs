@@ -1,6 +1,6 @@
 using Microsoft.Identity.Client;
 
-// Interactive (browser) token minter for local testing of GET /api/profile.
+// Interactive (browser) token minter for local testing of POST /api/agent/chat.
 //
 // Pops a system browser, signs you in, and prints a bearer token whose audience is the
 // OBO Function API (api://<clientId>) with the delegated scope access_as_user. This avoids
@@ -49,9 +49,9 @@ Console.WriteLine("----- ACCESS TOKEN -----");
 Console.WriteLine(result.AccessToken);
 Console.WriteLine("------------------------");
 Console.WriteLine();
-Console.WriteLine("Quick test against a locally running Function host (func start):");
+Console.WriteLine("Quick test against a locally running proxy (dotnet run):");
 Console.WriteLine();
 Console.WriteLine("  $t = '<paste-token>'");
-Console.WriteLine("  curl http://localhost:7071/api/profile -H \"Authorization: Bearer $t\"");
+Console.WriteLine("  curl -X POST http://localhost:7071/api/agent/chat -H \"Authorization: Bearer $t\" -H \"content-type: application/json\" -d '{\"message\":\"List my profile.\"}'");
 Console.WriteLine();
 return 0;

@@ -24,15 +24,7 @@
       "strokeWidth": 2, "roundness": { "type": 3 },
       "boundElements": [{ "type": "text", "id": "proxy_t" }] },
     { "type": "text", "id": "proxy_t", "containerId": "proxy", "x": 390, "y": 320, "width": 300, "height": 70,
-      "text": "Proxy  (src/OBOFunction, App Service .NET 8)\nGET /api/profile   POST /api/agent/chat\nvalidates JWT, performs OBO exchanges",
-      "fontSize": 13, "fontFamily": 2, "strokeColor": "#000000", "textAlign": "center", "verticalAlign": "middle" },
-
-    { "type": "rectangle", "id": "graph1", "x": 770, "y": 300, "width": 300, "height": 110,
-      "strokeColor": "#0c8599", "backgroundColor": "#99e9f2", "fillStyle": "solid",
-      "strokeWidth": 2, "roundness": { "type": 3 },
-      "boundElements": [{ "type": "text", "id": "graph1_t" }] },
-    { "type": "text", "id": "graph1_t", "containerId": "graph1", "x": 780, "y": 320, "width": 280, "height": 70,
-      "text": "Microsoft Graph /me + photo\nSharePoint UPS (PeopleManager)\n= UserProfile JSON (as the user)",
+      "text": "Proxy  (src/OBOFunction, App Service .NET 8)\nPOST /api/agent/chat\nvalidates JWT, OBO to MCP audience, delegates to agent",
       "fontSize": 13, "fontFamily": 2, "strokeColor": "#000000", "textAlign": "center", "verticalAlign": "middle" },
 
     { "type": "rectangle", "id": "foundry", "x": 380, "y": 510, "width": 320, "height": 100,
@@ -67,29 +59,13 @@
       "text": "Foundry Hosted Agent\n(src/SharePointAgent, .NET 10)\nPlayground / autonomous demo.\nHostedMcpServerTool -> MCP server.",
       "fontSize": 12, "fontFamily": 2, "strokeColor": "#000000", "textAlign": "center", "verticalAlign": "middle" },
 
-    { "type": "arrow", "id": "a_profile", "x": 470, "y": 180, "width": 0, "height": 118,
-      "strokeColor": "#107C10", "strokeWidth": 2, "points": [[0,0],[0,118]],
-      "startBinding": { "elementId": "spfx", "focus": -0.3, "gap": 2 },
-      "endBinding": { "elementId": "proxy", "focus": -0.3, "gap": 2 } },
-    { "type": "text", "id": "a_profile_t", "x": 150, "y": 215, "width": 230, "height": 40,
-      "text": "(A) GET /api/profile\nAuthorization: Bearer <user JWT>",
-      "fontSize": 12, "fontFamily": 2, "strokeColor": "#000000", "textAlign": "left", "verticalAlign": "top" },
-
-    { "type": "arrow", "id": "a_chat", "x": 610, "y": 180, "width": 0, "height": 118,
+    { "type": "arrow", "id": "a_chat", "x": 540, "y": 180, "width": 0, "height": 118,
       "strokeColor": "#5C2D91", "strokeWidth": 2, "points": [[0,0],[0,118]],
-      "startBinding": { "elementId": "spfx", "focus": 0.3, "gap": 2 },
-      "endBinding": { "elementId": "proxy", "focus": 0.3, "gap": 2 } },
-    { "type": "text", "id": "a_chat_t", "x": 705, "y": 215, "width": 230, "height": 40,
-      "text": "(B) POST /api/agent/chat\nAuthorization: Bearer <user JWT>",
+      "startBinding": { "elementId": "spfx", "focus": 0, "gap": 2 },
+      "endBinding": { "elementId": "proxy", "focus": 0, "gap": 2 } },
+    { "type": "text", "id": "a_chat_t", "x": 600, "y": 215, "width": 250, "height": 40,
+      "text": "POST /api/agent/chat\nAuthorization: Bearer <user JWT>",
       "fontSize": 12, "fontFamily": 2, "strokeColor": "#000000", "textAlign": "left", "verticalAlign": "top" },
-
-    { "type": "arrow", "id": "a_obo1", "x": 700, "y": 355, "width": 66, "height": 0,
-      "strokeColor": "#0c8599", "strokeWidth": 2, "points": [[0,0],[66,0]],
-      "startBinding": { "elementId": "proxy", "focus": 0, "gap": 2 },
-      "endBinding": { "elementId": "graph1", "focus": 0, "gap": 2 } },
-    { "type": "text", "id": "a_obo1_t", "x": 700, "y": 270, "width": 70, "height": 25,
-      "text": "OBO",
-      "fontSize": 12, "fontFamily": 2, "strokeColor": "#000000", "textAlign": "center", "verticalAlign": "top" },
 
     { "type": "arrow", "id": "a_resp", "x": 540, "y": 410, "width": 0, "height": 96,
       "strokeColor": "#5C2D91", "strokeWidth": 2, "points": [[0,0],[0,96]],
@@ -122,7 +98,7 @@
       "strokeColor": "#1e1e1e", "backgroundColor": "transparent", "fillStyle": "solid",
       "strokeWidth": 1, "roundness": { "type": 3 } },
     { "type": "text", "id": "appregs_t", "x": 45, "y": 100, "width": 295, "height": 135,
-      "text": "Two app registrations only:\n1) Proxy API  api://<proxy-app>\n    scope access_as_user; OBO to\n    Graph/SharePoint and to MCP aud.\n2) MCP API  api://<mcp-app>\n    scope access_as_user; OBO to\n    Graph/SharePoint as the user.",
+      "text": "Two app registrations only:\n1) Proxy API  api://<proxy-app>\n    scope access_as_user; OBO to\n    the MCP audience only.\n2) MCP API  api://<mcp-app>\n    scope access_as_user; OBO to\n    Graph/SharePoint as the user.",
       "fontSize": 12, "fontFamily": 2, "strokeColor": "#000000", "textAlign": "left", "verticalAlign": "top" }
   ]
 }

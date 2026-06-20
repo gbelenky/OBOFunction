@@ -9,26 +9,24 @@ profile to a **Microsoft Foundry agent**, with the user's identity flowing end-t
 **OAuth 2.0 On-Behalf-Of (OBO)** flow. SPFx is the auth boundary; no user token is stored or logged.
 
 ## The three components (single architecture)
-1. **Proxy** — `src/OBOFunction`, **App Service, .NET 8 ASP.NET Core** (minimal API; *not* Functions isolated worker).
-   - `GET /api/profile` — validate SPFx JWT → OBO → Graph `/me` + photo + SharePoint UPS → `UserProfile`.
-   - `POST /api/agent/chat` — call the Foundry **model** Responses endpoint with the MCP server attached as a per-user `mcp` tool. Body `{ message, previousResponseId }` → `{ reply, responseId, status, consentUrl? }`.
+1. **Proxy** — `src/OBOFunction`, **App Service, .NET 8 ASP.NET Core** (minimal API; *not* Functions isolated worker). Holds **no** Graph/SharePoint logic — delegates all profile retrieval to the agent.
+   - `POST /api/agent/chat` — validate SPFx JWT → OBO to MCP audience → call the Foundry **model** Responses endpoint with the MCP server attached as a per-user `mcp` tool. Body `{ message, previousResponseId }` → `{ reply, responseId, status, consentUrl? }`.
    - Health: `/liveness`, `/readiness`.
 2. **MCP server** — `src/SharePointMcp`, **App Service, .NET 8**. Tool `get_sharepoint_profile`; `RequestCredentialProvider` → `OnBehalfOfCredential` (user token present) else `DefaultAzureCredential` (app-only). Stateless HTTP transport. Endpoint `/mcp`.
 3. **Hosted agent** — `src/SharePointAgent`, **Foundry hosted agent, .NET 10** (Microsoft Agent Framework). Declares the MCP server via `HostedMcpServerTool` (URL-bound). Playground/autonomous demo only. No embedded profile tool.
 
 ## Identity flow
-- **Profile (A):** SPFx user JWT (aud `api://<proxy-app>`) → proxy OBO → Graph + SharePoint as the user.
-- **Chat (B):** proxy leg ① app token (`DefaultAzureCredential`, `https://ai.azure.com/.default`) authorizes the Responses call; leg ② OBO user→MCP-audience token in the `mcp` tool's `authorization` → Foundry forwards it to the MCP server → MCP server OBO → Graph + SharePoint.
+- **Chat (single path):** proxy validates the SPFx user JWT (aud `api://<proxy-app>`); leg ① app token (`DefaultAzureCredential`, `https://ai.azure.com/.default`) authorizes the Responses call; leg ② OBO user→MCP-audience token in the `mcp` tool's `authorization` → Foundry forwards it to the MCP server → MCP server OBO → Graph + SharePoint as the user. The proxy never reads Graph/SharePoint itself.
 - The proxy targets the **raw model** (gpt-4.1-mini), not the named hosted agent (hosted agents reject request-supplied tools).
 
 ## Exactly two app registrations
-1. **Proxy API** `api://<proxy-app>`, scope `access_as_user`. Delegated Graph `User.Read`/`offline_access`/`openid`/`profile` + SharePoint `AllSites.Read`/`User.Read.All`. Pre-authorize SharePoint Online Client Extensibility `08e18876-6177-487e-b8b5-cf950c1e598c` (+ Azure CLI `04b07795-...` for local). Secret in KV (`AzureAd--ClientSecret`).
+1. **Proxy API** `api://<proxy-app>`, scope `access_as_user`. Delegated `openid`/`profile`/`offline_access` + the **MCP API** scope `api://<mcp-app>/access_as_user` (the proxy OBOs only to the MCP audience — **no** Graph/SharePoint delegated perms). Pre-authorize SharePoint Online Client Extensibility `08e18876-6177-487e-b8b5-cf950c1e598c` (+ Azure CLI `04b07795-...` for local). Secret in KV (`AzureAd--ClientSecret`).
 2. **MCP API** `api://<mcp-app>`, scope `access_as_user`. Same delegated Graph + SharePoint perms. Pre-authorize the **Proxy API** app + the SharePoint Online Client Extensibility principal. Secret in KV (`Mcp--ClientSecret`).
 
 > No third app registration, no Foundry toolbox, no `/api/ask`, no embedded agent tool. Any leftover Foundry toolbox/connections are orphans.
 
 ## Stack
-- `Microsoft.Identity.Web` + `Microsoft.Identity.Client` (OBO), `Microsoft.Graph` v5+, `ModelContextProtocol.AspNetCore` (pin `ModelContextProtocol` **1.2.0**), `Microsoft.Agents.AI.Foundry.Hosting`.
+- `Microsoft.Identity.Web` + `Microsoft.Identity.Client` (OBO). `Microsoft.Graph` v5+ is used by the **MCP server** (not the proxy). `ModelContextProtocol.AspNetCore` (pin `ModelContextProtocol` **1.2.0**), `Microsoft.Agents.AI.Foundry.Hosting`.
 - App Insights + OpenTelemetry; Key Vault references via managed identity (no secrets in app settings).
 - CORS allow-list limited to `https://<tenant>.sharepoint.com`.
 
@@ -39,8 +37,8 @@ profile to a **Microsoft Foundry agent**, with the user's identity flowing end-t
 - `azd up` end-to-end; `azd down --purge --force` cleans up (incl. KV soft-delete); `azd pipeline config` = federated creds.
 
 ## Config keys
-`AzureAd:{TenantId,ClientId,Audience,ClientSecret}`, `Graph:Scopes`, `SharePoint:{RootSiteUrl,Scopes,TenantHostname}`,
-`Foundry:{ProjectEndpoint,TokenScope}`, `Mcp:{ServerUrl,ServerLabel,UserTokenScope,ClientSecret}`, `KeyVault:Uri`.
+- **Proxy:** `AzureAd:{TenantId,ClientId,Audience,ClientSecret}`, `SharePoint:{RootSiteUrl,TenantHostname}` (CORS only), `Foundry:{ProjectEndpoint,TokenScope}`, `Mcp:{ServerUrl,ServerLabel,UserTokenScope}`, `KeyVault:Uri`.
+- **MCP server:** `AzureAd:{...,ClientSecret}`, `Graph:Scopes`, `SharePoint:{RootSiteUrl,Scopes,TenantHostname}`, `KeyVault:Uri`.
 
 ## Code quality
 - Constructor DI; no service locators. RFC 7807 `ProblemDetails` on errors. No `TODO` placeholders.
@@ -56,6 +54,6 @@ profile to a **Microsoft Foundry agent**, with the user's identity flowing end-t
 ## Definition of done
 - [ ] `azd up` deploys cleanly; `azd down --purge --force` cleans up fully.
 - [ ] `scripts/test-spfx-chain.ps1` returns the full profile with `ResolvedVia: "user"`.
-- [ ] SPFx sample calls `GET /api/profile` and `POST /api/agent/chat`; tenant approval documented.
+- [ ] SPFx sample calls `POST /api/agent/chat` (auto-greets on load); tenant approval documented.
 - [ ] App Insights shows end-to-end trace: SPFx → proxy → Graph/SharePoint → Foundry → MCP.
 - [ ] README + ARCHITECTURE + component READMEs reflect the single architecture and the two app registrations.
