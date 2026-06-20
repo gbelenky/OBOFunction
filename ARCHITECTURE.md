@@ -113,7 +113,7 @@ not the guest is present, and without the guest ever knowing.
 reads where **there is no signed-in user** and an admin has deliberately accepted that the app can read
 everyone. It is simpler (one consent, no check-in) and sometimes unavoidable.
 
-**The trade-off to state plainly to a customer:** the master key removes the guest from the loop. The app
+**The trade-off:** the master key removes the guest from the loop. The app
 can read **any** user's profile at **any** time, and audit logs show **the hotel**, not the guest, opening
 the door. If the requirement is "each user sees only their own data, and the trace proves it," the master
 key cannot provide it — that is precisely what the personal-key-card (OBO) model in §0 is for.
