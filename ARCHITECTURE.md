@@ -73,17 +73,17 @@ The sections below map this analogy to the real components, tokens, and app regi
 
 ---
 
-## 0a. The customer's alternative — the "master key" (app-only) story
+## 0a. Master key — no OBO (app-only)
 
 Some teams take a different approach to reach the same SharePoint data. It is worth telling **as the same
 hotel**, so the trade-off is obvious. (A real customer of ours uses exactly this model to read a custom
 SharePoint profile field, `IntranetCountry`.)
 
-In this version there is **no check-in**. Instead, the hotel manager gives the Concierge a **master key**,
-signed off **once** by the building owner, that opens **every guest's room** — whether or not the guest is
-present, and without the guest ever knowing.
+In this version there is **no check-in** and **no OBO**. Instead, the hotel manager gives the Concierge a
+**master key**, signed off **once** by the building owner, that opens **every guest's room** — whether or
+not the guest is present, and without the guest ever knowing.
 
-| Hotel | Customer's system |
+| Hotel | Master-key system |
 |---|---|
 | 🛂 Passport Office | Microsoft Entra |
 | 🏛️ Building owner (signs off the master key once) | **Tenant admin** granting **admin consent** |
