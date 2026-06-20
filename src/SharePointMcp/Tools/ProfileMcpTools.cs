@@ -17,6 +17,7 @@ public sealed class ProfileMcpTools
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
@@ -38,10 +39,11 @@ public sealed class ProfileMcpTools
     }
 
     [McpServerTool(Name = "get_sharepoint_profile")]
-    [Description("Fetch the current user's Microsoft Graph and SharePoint profile " +
-                 "(name, job title, department, office, skills, interests, responsibilities, etc.). " +
-                 "Acts on behalf of the signed-in user when a delegated token is present. " +
-                 "Returns a JSON object.")]
+    [Description("Fetch the current user's profile as a compact JSON object with exactly these fields: " +
+                 "name, firstName, lastName, email (Microsoft Graph) and jobTitle, responsibilities, " +
+                 "pastProjects, interests, country (SharePoint User Profile Service, including the custom " +
+                 "IntranetCountry attribute). Acts on behalf of the signed-in user when a delegated token " +
+                 "is present.")]
     public async Task<string> GetSharePointProfileAsync(CancellationToken cancellationToken = default)
     {
         var (credential, isUserToken) = _credentialProvider.Resolve();

@@ -1,49 +1,41 @@
 namespace SharePointMcp.Models;
 
 /// <summary>
-/// Merged Microsoft Graph + SharePoint User Profile Service (UPS) view of the
-/// user the call acts as. Returned by the <c>get_sharepoint_profile</c> MCP tool.
+/// Slim profile returned by the <c>get_sharepoint_profile</c> MCP tool. Only the fields the
+/// agent needs are delivered, so the payload contains no unused/null properties.
+/// <list type="bullet">
+/// <item><description><see cref="Name"/> / <see cref="Email"/> come from Microsoft Graph (<c>/me</c>).</description></item>
+/// <item><description>The remaining fields come from the SharePoint User Profile Service (UPS)
+/// via <c>PeopleManager/GetMyProperties</c>.</description></item>
+/// </list>
 /// </summary>
 public sealed record UserProfile
 {
-    public string? Id { get; init; }
-    public string? DisplayName { get; init; }
-    public string? GivenName { get; init; }
-    public string? Surname { get; init; }
-    public string? UserPrincipalName { get; init; }
-    public string? Mail { get; init; }
+    /// <summary>Graph <c>displayName</c>.</summary>
+    public string? Name { get; init; }
+
+    /// <summary>Graph <c>givenName</c>.</summary>
+    public string? FirstName { get; init; }
+
+    /// <summary>Graph <c>surname</c>.</summary>
+    public string? LastName { get; init; }
+
+    /// <summary>Graph <c>mail</c> (falls back to <c>userPrincipalName</c>).</summary>
+    public string? Email { get; init; }
+
+    /// <summary>UPS <c>SPS-JobTitle</c> (falls back to Graph <c>jobTitle</c>).</summary>
     public string? JobTitle { get; init; }
-    public string? Department { get; init; }
-    public string? OfficeLocation { get; init; }
-    public string? PreferredLanguage { get; init; }
-    public string? MobilePhone { get; init; }
-    public IReadOnlyList<string> BusinessPhones { get; init; } = [];
-    public SharePointProfile? SharePointProfile { get; init; }
 
-    /// <summary>Which identity produced this profile: "user" (passthrough) or "app" (DefaultAzureCredential).</summary>
-    public string? ResolvedVia { get; init; }
-}
-
-/// <summary>
-/// SharePoint User Profile Service properties (PeopleManager/GetMyProperties).
-/// </summary>
-public sealed record SharePointProfile
-{
-    public string? AccountName { get; init; }
-    public string? AboutMe { get; init; }
-    public string? PersonalUrl { get; init; }
-    public IReadOnlyList<string> Skills { get; init; } = [];
-    public IReadOnlyList<string> Interests { get; init; } = [];
-    public IReadOnlyList<string> PastProjects { get; init; } = [];
+    /// <summary>UPS <c>SPS-Responsibility</c>.</summary>
     public IReadOnlyList<string> Responsibilities { get; init; } = [];
-    public IReadOnlyList<string> Schools { get; init; } = [];
 
-    /// <summary>
-    /// All SharePoint UPS properties returned by GetMyProperties, keyed by internal name
-    /// (e.g. custom properties created in Manage User Properties). Lets custom attributes
-    /// surface without being individually hard-coded above. Only populated in app mode
-    /// (ResolvedVia "app"); skipped in user/passthrough mode where UPS is not called.
-    /// </summary>
-    public IReadOnlyDictionary<string, string> ExtendedProperties { get; init; } =
-        new Dictionary<string, string>();
+    /// <summary>UPS <c>SPS-PastProjects</c>.</summary>
+    public IReadOnlyList<string> PastProjects { get; init; } = [];
+
+    /// <summary>UPS <c>SPS-Interests</c>.</summary>
+    public IReadOnlyList<string> Interests { get; init; } = [];
+
+    /// <summary>Custom UPS attribute <c>IntranetCountry</c>.</summary>
+    public string? Country { get; init; }
 }
+

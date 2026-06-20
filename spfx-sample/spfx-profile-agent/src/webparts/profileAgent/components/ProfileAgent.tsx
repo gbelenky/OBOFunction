@@ -18,6 +18,7 @@ interface IProfileAgentState {
   asking: boolean;
   chatError: string | undefined;
   consentUrl: string | undefined;
+  maximized: boolean;
 }
 
 export default class ProfileAgent extends React.Component<IProfileAgentProps, IProfileAgentState> {
@@ -34,13 +35,18 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
       chat: [],
       asking: false,
       chatError: undefined,
-      consentUrl: undefined
+      consentUrl: undefined,
+      maximized: false
     };
   }
 
   public componentDidMount(): void {
     this.loadProfile();
   }
+
+  private toggleMaximize = (): void => {
+    this.setState(prev => ({ maximized: !prev.maximized }));
+  };
 
   private loadProfile = (): void => {
     this.setState({ profileLoading: true, profileError: undefined });
@@ -127,12 +133,23 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
 
   public render(): React.ReactElement<IProfileAgentProps> {
     const { hasTeamsContext } = this.props;
-    const { input, chat, asking, chatError, consentUrl } = this.state;
+    const { input, chat, asking, chatError, consentUrl, maximized } = this.state;
+    const sectionClass =
+      `${styles.profileAgent} ${hasTeamsContext ? styles.teams : ''} ${maximized ? styles.maximized : ''}`;
     return (
-      <section className={`${styles.profileAgent} ${hasTeamsContext ? styles.teams : ''}`}>
+      <section className={sectionClass}>
         <div className={styles.welcome}>
           <h2>Your profile &amp; agent</h2>
           <div>Signed in as <strong>{escape(this.props.userDisplayName)}</strong></div>
+          <button
+            type="button"
+            className={styles.maxButton}
+            onClick={this.toggleMaximize}
+            aria-pressed={maximized}
+            title={maximized ? 'Restore' : 'Maximize'}
+          >
+            {maximized ? '🗗 Restore' : '🗖 Maximize'}
+          </button>
         </div>
 
         {this.renderProfile()}

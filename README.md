@@ -71,6 +71,21 @@ Both are single-tenant. Secrets live in Key Vault — never in app settings or `
 > *connections* (`SharePointProfileTools`, `sp-profile-obo`, a `UserEntraToken` `SharePointMcp`
 > connection) — none are used by this architecture and can be deleted from the Foundry project.
 
+### Why `User.Read.All` requires admin consent
+
+Entra classifies the SharePoint Online **`User.Read.All`** ("Read user profiles") scope as **admin-consent-required** because of what the scope *can* reach, independent of how this app uses it:
+
+| Permission | Consent | Reach |
+|---|---|---|
+| `User.Read` | User can self-consent | Only the **signed-in user's own** profile. |
+| `User.Read.All` | **Tenant admin only** | **All users'** profiles in the tenant. |
+
+Any `*.All` directory-read scope can, by definition, read other people's data, so a regular user is not allowed to approve it — only a Global Admin / Privileged Role Admin can, and they grant it **once tenant-wide** (after which individual users never see a consent prompt).
+
+It is still required here because SharePoint's User Profile Service (`PeopleManager/GetMyProperties`, incl. the custom `IntranetCountry` UPS field) is gated behind `User.Read.All` — there is no narrower "read my own UPS profile" delegated scope.
+
+**Runtime is still per-user.** This is a **delegated + OBO** flow, so every call is bounded by the signed-in user's own effective permissions: `GetMyProperties` returns only *their* profile. Admin consent grants the *capability* to call the profile store; it does **not** turn this into app-only, read-everyone access (that would require the **application** permission `User.Read.All`, which this design deliberately does not use).
+
 ## Prerequisites
 
 - Azure subscription + an Entra tenant where you can create app registrations and grant admin consent.

@@ -50,52 +50,52 @@ public sealed class SharePointProfileService
         {
             rc.QueryParameters.Select =
             [
-                "id", "displayName", "givenName", "surname", "userPrincipalName",
-                "mail", "jobTitle", "department", "officeLocation",
-                "preferredLanguage", "mobilePhone", "businessPhones"
+                "displayName", "givenName", "surname", "mail", "userPrincipalName", "jobTitle"
             ];
         }, ct).ConfigureAwait(false);
 
-        SharePointProfile? sp = null;
+        UpsFields ups = default;
         if (_allowSharePointUps && !string.IsNullOrWhiteSpace(_sharePointRootSiteUrl))
         {
             try
             {
-                sp = await FetchSharePointProfileAsync(ct).ConfigureAwait(false);
+                ups = await FetchSharePointProfileAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                // SharePoint UPS is best-effort; the Graph profile is still returned.
-                // Surface the reason to stderr so dev-loop failures (e.g. the Azure CLI
-                // app's SharePoint-token 401, since it has no SP delegated consent) are
-                // visible instead of silently producing a null SharePointProfile.
+                // SharePoint UPS is best-effort; the Graph name/email are still returned.
+                // Surface the reason to stderr so dev-loop failures (e.g. a SharePoint-token
+                // 401) are visible instead of silently dropping the UPS fields.
                 Console.Error.WriteLine(
                     $"[SharePointProfileService] UPS fetch failed (resolvedVia={_resolvedVia}): " +
                     $"{ex.GetType().Name}: {ex.Message}");
-                sp = null;
+                ups = default;
             }
         }
 
         return new UserProfile
         {
-            Id = me?.Id,
-            DisplayName = me?.DisplayName,
-            GivenName = me?.GivenName,
-            Surname = me?.Surname,
-            UserPrincipalName = me?.UserPrincipalName,
-            Mail = me?.Mail,
-            JobTitle = me?.JobTitle,
-            Department = me?.Department,
-            OfficeLocation = me?.OfficeLocation,
-            PreferredLanguage = me?.PreferredLanguage,
-            MobilePhone = me?.MobilePhone,
-            BusinessPhones = me?.BusinessPhones?.ToArray() ?? [],
-            SharePointProfile = sp,
-            ResolvedVia = _resolvedVia
+            Name = me?.DisplayName,
+            FirstName = me?.GivenName,
+            LastName = me?.Surname,
+            Email = me?.Mail ?? me?.UserPrincipalName,
+            JobTitle = ups.JobTitle ?? me?.JobTitle,
+            Responsibilities = ups.Responsibilities ?? [],
+            PastProjects = ups.PastProjects ?? [],
+            Interests = ups.Interests ?? [],
+            Country = ups.Country
         };
     }
 
-    private async Task<SharePointProfile> FetchSharePointProfileAsync(CancellationToken ct)
+    /// <summary>The subset of SharePoint UPS properties the MCP tool exposes.</summary>
+    private readonly record struct UpsFields(
+        string? JobTitle,
+        IReadOnlyList<string>? Responsibilities,
+        IReadOnlyList<string>? PastProjects,
+        IReadOnlyList<string>? Interests,
+        string? Country);
+
+    private async Task<UpsFields> FetchSharePointProfileAsync(CancellationToken ct)
     {
         var spResource = new Uri(_sharePointRootSiteUrl!).GetLeftPart(UriPartial.Authority);
         var token = await _credential
@@ -114,61 +114,39 @@ public sealed class SharePointProfileService
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
         var root = doc.RootElement;
 
-        string Str(string p) => root.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
-        string? StrOrNull(string p) => root.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
-        IReadOnlyList<string> MultiValue(string propName)
+        // Index every UPS property by internal name (Key/Value pairs) so the named fields below
+        // — including the custom IntranetCountry attribute — resolve regardless of ordering.
+        var props = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (root.TryGetProperty("UserProfileProperties", out var arr) && arr.ValueKind == JsonValueKind.Array)
         {
-            if (!root.TryGetProperty("UserProfileProperties", out var arr) || arr.ValueKind != JsonValueKind.Array)
-                return [];
-
             foreach (var kv in arr.EnumerateArray())
-            {
-                if (kv.TryGetProperty("Key", out var k) && string.Equals(k.GetString(), propName, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (kv.TryGetProperty("Value", out var v) && v.ValueKind == JsonValueKind.String)
-                    {
-                        var raw = v.GetString();
-                        if (string.IsNullOrWhiteSpace(raw)) return [];
-                        return raw.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                    }
-                }
-            }
-            return [];
-        }
-
-        string? aboutMe = StrOrNull("AboutMe");
-
-        // Capture every UPS property by internal name so custom attributes
-        // (created in Manage User Properties) surface without hard-coding each one.
-        var extended = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (root.TryGetProperty("UserProfileProperties", out var allProps) && allProps.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var kv in allProps.EnumerateArray())
             {
                 if (kv.TryGetProperty("Key", out var k) && kv.TryGetProperty("Value", out var v))
                 {
                     var key = k.GetString();
                     var val = v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString();
                     if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(val))
-                        extended[key] = val;
+                        props[key] = val!;
                 }
             }
         }
 
-        aboutMe ??= extended.GetValueOrDefault("AboutMe");
+        string? Single(string name) =>
+            props.TryGetValue(name, out var s) && !string.IsNullOrWhiteSpace(s) ? s : null;
 
-        return new SharePointProfile
+        IReadOnlyList<string> Multi(string name)
         {
-            AccountName = Str("AccountName"),
-            AboutMe = aboutMe,
-            PersonalUrl = StrOrNull("PersonalUrl"),
-            Skills = MultiValue("SPS-Skills"),
-            Interests = MultiValue("SPS-Interests"),
-            PastProjects = MultiValue("SPS-PastProjects"),
-            Responsibilities = MultiValue("SPS-Responsibility"),
-            Schools = MultiValue("SPS-School"),
-            ExtendedProperties = extended
-        };
+            var raw = Single(name);
+            return string.IsNullOrWhiteSpace(raw)
+                ? []
+                : raw.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+
+        return new UpsFields(
+            JobTitle: Single("SPS-JobTitle"),
+            Responsibilities: Multi("SPS-Responsibility"),
+            PastProjects: Multi("SPS-PastProjects"),
+            Interests: Multi("SPS-Interests"),
+            Country: Single("IntranetCountry"));
     }
 }
