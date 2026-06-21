@@ -242,6 +242,18 @@ identity passthrough for the Playground path. No Toolbox, no embedded profile to
 `/api/ask`. Any leftover Foundry *toolbox* or extra *connections* in the project are orphans and can be
 removed.
 
+### 4.3 Where Foundry OAuth passthrough works — and where it does not
+
+Foundry OAuth identity passthrough for a **custom** MCP server works only in an **interactive first-party
+channel** (Foundry Playground; by extension Teams and M365 Copilot). It **cannot** auto-deliver the profile
+through a **custom web app** (SPFx → proxy → agent), because the hosted agent discovers/runs its
+toolbox/MCP tools under the **agent's managed identity** (no user context) → the passthrough tool is
+silently dropped and **no consent is emitted**. This is a platform/channel reality, proven with live
+telemetry, CORS probes, and direct + streamed agent-API calls. For the full evidence, the answer to the
+"would it work via Teams / M365 Copilot?" question (**yes**), and the working **Option A** alternative
+(the proxy resolves the user's country via OBO and injects it as context for `search_faq`), see
+[`docs/foundry-oauth-passthrough-findings.md`](./docs/foundry-oauth-passthrough-findings.md).
+
 ---
 
 ## 5. Country-filtered FAQ / Q&A search (agent-owned, no OBO)

@@ -46,6 +46,8 @@ builder.Services.AddCors(o => o.AddPolicy(CorsPolicy, p =>
 
 builder.Services.AddScoped<IUserTokenAccessor, UserTokenAccessor>();
 builder.Services.AddSingleton<IAgentChatClient, AgentChatClient>();
+// Option A: resolve the signed-in user's country via OBO so the proxy can inject it as context.
+builder.Services.AddSingleton<IProfileCountryService, ProfileCountryService>();
 
 var app = builder.Build();
 
@@ -63,6 +65,7 @@ app.MapPost("/api/agent/chat", [Authorize] async (
     [FromBody] AgentChatRequest? body,
     IAgentChatClient agent,
     IUserTokenAccessor tokens,
+    IProfileCountryService profileCountry,
     ILoggerFactory loggerFactory,
     CancellationToken ct) =>
 {
@@ -74,7 +77,30 @@ app.MapPost("/api/agent/chat", [Authorize] async (
         if (body is null || string.IsNullOrWhiteSpace(body.Message))
             return Problem("A non-empty 'message' is required.", "Invalid request", StatusCodes.Status400BadRequest);
 
-        var reply = await agent.ChatAsync(body, assertion, ct);
+        // Option A — inject the signed-in user's country as conversation context on the FIRST
+        // turn only (follow-ups inherit it via previous_response_id). The proxy stays unaware of
+        // the agent's tools; it only prepends a plain country string the model uses for
+        // country-filtered features (search_faq). Best-effort: a null country is simply omitted.
+        var outgoing = body;
+        if (string.IsNullOrWhiteSpace(body.PreviousResponseId))
+        {
+            var country = await profileCountry.GetCountryAsync(assertion, ct);
+            if (!string.IsNullOrWhiteSpace(country))
+            {
+                var context =
+                    $"[Profile context provided by the host: the signed-in user's country is \"{country}\". " +
+                    "Treat this as the authoritative country for any country-filtered features such as " +
+                    "search_faq; do not ask the user for their country.]\n\n";
+                outgoing = body with { Message = context + body.Message };
+                logger.LogInformation("Injected profile country context into the first agent turn.");
+            }
+            else
+            {
+                logger.LogInformation("No country resolved for the user; proceeding without country context.");
+            }
+        }
+
+        var reply = await agent.ChatAsync(outgoing, assertion, ct);
         return Results.Ok(reply);
     }
     catch (UnauthorizedAccessException ex)

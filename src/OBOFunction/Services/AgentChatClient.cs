@@ -18,23 +18,24 @@ namespace OBOFunction.Services;
 /// <remarks>
 /// <para><b>Flow:</b> SPFx → Proxy → Agent → (the agent's own) tools.</para>
 /// <para>
-/// The agent (<c>SharePointProfileAgent</c>) owns its tools itself:
+/// The agent (<c>SharePointProfileAgent</c>) owns its tools itself, e.g. the local in-process
+/// <c>search_faq</c> tool. This client never references them.
 /// </para>
-/// <list type="bullet">
-/// <item><description><c>get_sharepoint_profile</c> — the SharePointMcp remote tool, wired to the
-/// agent via a Foundry <c>UserEntraToken</c> connection (identity passthrough).</description></item>
-/// <item><description><c>search_faq</c> — a local in-process tool on the hosted agent.</description></item>
-/// </list>
-/// <para><b>Identity passthrough (one user token, no app token):</b></para>
+/// <para><b>Identity (one user token, no app token):</b></para>
 /// <list type="number">
 /// <item><description>SPFx sends the user's token (audience = this proxy's app registration).</description></item>
 /// <item><description>The proxy OBO-exchanges it for a token whose audience is the Foundry data
 /// plane (<c>https://ai.azure.com</c>) — still the <i>same user</i>.</description></item>
 /// <item><description>The proxy POSTs the turn to the agent's Responses endpoint with that user
-/// token. Foundry runs the agent; for the <c>get_sharepoint_profile</c> tool its
-/// <c>UserEntraToken</c> connection forwards the user identity to the MCP server, which performs
-/// its own OBO to Microsoft Graph + SharePoint. No user token is ever stored.</description></item>
+/// token. No user token is ever stored.</description></item>
 /// </list>
+/// <para><b>Country context:</b> Foundry OAuth identity passthrough cannot deliver the per-user
+/// SharePoint profile through this custom SPFx → proxy → agent chain (hosted-agent tool discovery
+/// runs under the agent's managed identity, so the passthrough tool is dropped and no consent is
+/// surfaced — see <c>docs/foundry-oauth-passthrough-findings.md</c>). As a result the proxy
+/// resolves the user's country itself (Option A, <see cref="IProfileCountryService"/>) and the
+/// endpoint injects it as plain conversation context before calling this client. This client
+/// remains tool-agnostic; it just forwards the (possibly enriched) message.</para>
 /// </remarks>
 public sealed class AgentChatClient : IAgentChatClient
 {
