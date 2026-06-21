@@ -98,14 +98,16 @@ public sealed class FaqSearchService
         }
 
         // Keyword search can miss entries written in the user's local language (e.g. an English
-        // query "vacation" will not match a German "Urlaubsantrag" entry). When a real query
-        // returns nothing, broaden to the full country (+Global) set so the multilingual model can
-        // map the question to the right entry across languages instead of falsely reporting "none".
+        // query "vacation" will not match a German "Urlaubsantrag" entry) — and worse, a query like
+        // "how can I request a vacation" may keyword-match a few weakly-relevant English entries
+        // (count > 0) while the truly relevant local-language entry scores 0 and never appears. So we
+        // ALWAYS top up the keyword hits with the full country (+Global) set, appending any entries
+        // not already present, so the multilingual model can always see and map every applicable FAQ.
         bool broadened = false;
-        if (items.Count == 0 && !string.IsNullOrWhiteSpace(question) && searchText != "*")
+        if (!string.IsNullOrWhiteSpace(question) && searchText != "*")
         {
-            // Use a generous page size here: an unscored "*" match returns rows in arbitrary order,
-            // so a small Size could drop the very (region-specific) entries we are trying to surface.
+            // Use a generous page size: an unscored "*" match returns rows in arbitrary order, so a
+            // small Size could drop the very (region-specific) entries we are trying to surface.
             var broadOptions = new SearchOptions { Size = 50, IncludeTotalCount = true };
             foreach (var f in SelectFields)
                 broadOptions.Select.Add(f);
@@ -115,9 +117,17 @@ public sealed class FaqSearchService
             Response<SearchResults<SearchDocument>> fallback =
                 await _client.SearchAsync<SearchDocument>("*", broadOptions, ct).ConfigureAwait(false);
 
+            var seen = new HashSet<string>(
+                items.Select(i => i.Title ?? i.Question ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase);
+
             await foreach (SearchResult<SearchDocument> r in fallback.Value.GetResultsAsync().WithCancellation(ct))
             {
                 var d = r.Document;
+                var key = Get(d, "Title") ?? Get(d, "Question") ?? string.Empty;
+                if (!seen.Add(key))
+                    continue;
+
                 items.Add(new FaqHit
                 {
                     Title = Get(d, "Title"),
@@ -130,8 +140,8 @@ public sealed class FaqSearchService
                     Url = Get(d, "ItemUrl"),
                     Score = r.Score
                 });
+                broadened = true;
             }
-            broadened = items.Count > 0;
         }
 
         var payload = new FaqSearchResult

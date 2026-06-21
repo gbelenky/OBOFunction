@@ -113,9 +113,16 @@ public sealed class AgentChatClient : IAgentChatClient
         // Pure proxy → agent: just the conversation. NO tools, NO instructions, NO MCP wiring —
         // the agent owns all of that. previous_response_id threads the multi-turn conversation and
         // is only sent when present — the endpoint rejects an explicit null (it must be a string).
+        // SystemContext (the user's profile, set server-side) is delivered as a SEPARATE developer-role
+        // item so the model treats it as background context and does not echo it into a greeting reply.
+        var input = new List<object>();
+        if (!string.IsNullOrWhiteSpace(request.SystemContext))
+            input.Add(new { role = "developer", content = request.SystemContext });
+        input.Add(new { role = "user", content = request.Message });
+
         var payload = new Dictionary<string, object?>
         {
-            ["input"] = new List<object> { new { role = "user", content = request.Message } }
+            ["input"] = input
         };
 
         if (!string.IsNullOrWhiteSpace(request.PreviousResponseId))

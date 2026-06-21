@@ -87,7 +87,10 @@ app.MapPost("/api/agent/chat", [Authorize] async (
             var profile = await profileContext.GetProfileAsync(assertion, ct);
             if (profile.HasAny)
             {
-                outgoing = body with { Message = BuildProfileContext(profile) + body.Message };
+                // Deliver the profile as a SEPARATE developer-role context item (not mixed into the
+                // user's message) so the model treats it as background instructions and does NOT echo
+                // it back on a simple greeting. The user can still ask about their profile later.
+                outgoing = body with { SystemContext = BuildProfileContext(profile) };
                 logger.LogInformation("Injected profile context into the first agent turn.");
             }
             else
@@ -145,22 +148,19 @@ static string BuildProfileContext(OBOFunction.Models.UserProfileContext p)
     var json = "{" + string.Join(",", fields) + "}";
 
     return
-        "SYSTEM/HOST DIRECTIVE — NOT a user message. The signed-in user's profile is provided below as " +
-        "JSON metadata about the signed-in user.\n" +
+        "You are assisting a signed-in user. Their profile is provided here as JSON metadata for context.\n" +
         "RULES (follow exactly):\n" +
-        "1. Do NOT volunteer or dump this profile UNSOLICITED, and NEVER append a bulleted profile list to " +
-        "a greeting or to an unrelated answer.\n" +
-        "2. If the user EXPLICITLY asks about their own profile (e.g. \"what is my profile?\", \"show my " +
-        "details\", \"what's my job title/country/interests?\"), DO answer directly using these values — " +
-        "it is the user asking about THEIR OWN data, so never refuse for privacy reasons.\n" +
-        "3. If the user's message is just a greeting, reply with one short sentence that greets them by " +
-        "first name and offers help (e.g. \"Hello " + (greetingName ?? "there") + "! How can I help you today?\").\n" +
-        "4. For any other message, greet by first name in your first sentence, then DIRECTLY answer — you " +
-        "MAY use the profile field values to inform your answer.\n" +
-        "5. Silently use \"country\" as authoritative for country-filtered features such as search_faq.\n" +
-        "6. Never ask the user for their name or country.\n" +
-        "USER_PROFILE_JSON=" + json + "\n\n" +
-        "The user's actual message follows:\n";
+        "1. Do NOT volunteer, list, or dump this profile UNSOLICITED. In particular, when the user simply " +
+        "greets you (e.g. \"hi\", \"hello\"), reply with ONLY a one-sentence greeting by first name and an " +
+        "offer to help (e.g. \"Hello " + (greetingName ?? "there") + "! How can I help you today?\"). Do " +
+        "NOT append any profile fields to a greeting or to unrelated answers.\n" +
+        "2. ONLY when the user EXPLICITLY asks about their own profile (e.g. \"what is my profile?\", \"show " +
+        "my details\", \"what's my job title/country/interests?\") may you present the relevant fields — " +
+        "it is the user's OWN data, so never refuse for privacy reasons.\n" +
+        "3. For all other questions, you MAY use these values silently to inform your answer.\n" +
+        "4. Silently use \"country\" as authoritative for country-filtered features such as search_faq.\n" +
+        "5. Never ask the user for their name or country.\n" +
+        "USER_PROFILE_JSON=" + json;
 }
 
 static string JsonString(string s) => System.Text.Json.JsonSerializer.Serialize(s);
