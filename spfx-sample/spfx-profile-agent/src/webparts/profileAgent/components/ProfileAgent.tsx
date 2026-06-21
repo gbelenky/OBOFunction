@@ -142,7 +142,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
             <input
               type="text"
               className={styles.input}
-              placeholder="Ask your intranet…"
+              placeholder="Ask the Intranet"
               value={input}
               disabled={asking}
               onChange={this.onInputChange}
