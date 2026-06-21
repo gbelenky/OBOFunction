@@ -97,12 +97,50 @@ public sealed class FaqSearchService
             });
         }
 
+        // Keyword search can miss entries written in the user's local language (e.g. an English
+        // query "vacation" will not match a German "Urlaubsantrag" entry). When a real query
+        // returns nothing, broaden to the full country (+Global) set so the multilingual model can
+        // map the question to the right entry across languages instead of falsely reporting "none".
+        bool broadened = false;
+        if (items.Count == 0 && !string.IsNullOrWhiteSpace(question) && searchText != "*")
+        {
+            // Use a generous page size here: an unscored "*" match returns rows in arbitrary order,
+            // so a small Size could drop the very (region-specific) entries we are trying to surface.
+            var broadOptions = new SearchOptions { Size = 50, IncludeTotalCount = true };
+            foreach (var f in SelectFields)
+                broadOptions.Select.Add(f);
+            if (filter is not null)
+                broadOptions.Filter = filter;
+
+            Response<SearchResults<SearchDocument>> fallback =
+                await _client.SearchAsync<SearchDocument>("*", broadOptions, ct).ConfigureAwait(false);
+
+            await foreach (SearchResult<SearchDocument> r in fallback.Value.GetResultsAsync().WithCancellation(ct))
+            {
+                var d = r.Document;
+                items.Add(new FaqHit
+                {
+                    Title = Get(d, "Title"),
+                    Question = Get(d, "Question"),
+                    Answer = Get(d, "Answer"),
+                    Category = Get(d, "Category"),
+                    Language = Get(d, "Language"),
+                    Location = Get(d, "Location"),
+                    Department = Get(d, "Department"),
+                    Url = Get(d, "ItemUrl"),
+                    Score = r.Score
+                });
+            }
+            broadened = items.Count > 0;
+        }
+
         var payload = new FaqSearchResult
         {
             Country = country,
             CountryField = _countryField,
             Filter = filter,
             IncludeGlobal = _includeGlobal,
+            Broadened = broadened,
             Count = items.Count,
             Results = items
         };
@@ -148,6 +186,7 @@ public sealed class FaqSearchService
         public string? CountryField { get; init; }
         public string? Filter { get; init; }
         public bool IncludeGlobal { get; init; }
+        public bool Broadened { get; init; }
         public int Count { get; init; }
         public IReadOnlyList<FaqHit> Results { get; init; } = [];
     }

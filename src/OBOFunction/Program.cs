@@ -120,32 +120,49 @@ static IResult Problem(string detail, string title, int status) =>
 // it to greet the user by name and to drive country-filtered features (search_faq) without asking.
 static string BuildProfileContext(OBOFunction.Models.UserProfileContext p)
 {
-    var lines = new List<string>();
     var greetingName = !string.IsNullOrWhiteSpace(p.FirstName) ? p.FirstName : p.Name;
+
+    // Emit the profile as a single-line JSON object (NOT a markdown list) so the model is far less
+    // likely to parrot it back. The surrounding directive forbids any echo/display of the data.
+    var fields = new List<string>();
     if (!string.IsNullOrWhiteSpace(greetingName))
-        lines.Add($"- Name: {p.Name ?? greetingName} (greet them as \"{greetingName}\")");
+        fields.Add($"\"firstName\":{JsonString(greetingName)}");
+    if (!string.IsNullOrWhiteSpace(p.Name))
+        fields.Add($"\"name\":{JsonString(p.Name)}");
     if (!string.IsNullOrWhiteSpace(p.Email))
-        lines.Add($"- Email: {p.Email}");
+        fields.Add($"\"email\":{JsonString(p.Email)}");
     if (!string.IsNullOrWhiteSpace(p.JobTitle))
-        lines.Add($"- Job title: {p.JobTitle}");
+        fields.Add($"\"jobTitle\":{JsonString(p.JobTitle)}");
     if (p.Responsibilities.Count > 0)
-        lines.Add($"- Responsibilities: {string.Join(", ", p.Responsibilities)}");
+        fields.Add($"\"responsibilities\":{JsonArray(p.Responsibilities)}");
     if (p.PastProjects.Count > 0)
-        lines.Add($"- Past projects: {string.Join(", ", p.PastProjects)}");
+        fields.Add($"\"pastProjects\":{JsonArray(p.PastProjects)}");
     if (p.Interests.Count > 0)
-        lines.Add($"- Interests: {string.Join(", ", p.Interests)}");
+        fields.Add($"\"interests\":{JsonArray(p.Interests)}");
     if (!string.IsNullOrWhiteSpace(p.Country))
-        lines.Add($"- Country: {p.Country} (authoritative for country-filtered features such as search_faq)");
+        fields.Add($"\"country\":{JsonString(p.Country)}");
+
+    var json = "{" + string.Join(",", fields) + "}";
 
     return
-        "[Profile context for the signed-in user, provided by the host. This is background data for " +
-        "YOU only — do NOT repeat, list, summarize, or display it back to the user. Greet the user " +
-        "by first name only (e.g. \"Hello " + (greetingName ?? "there") + "!\") and then answer their " +
-        "request. Use the country silently as authoritative for any country-filtered features such as " +
-        "search_faq. Never ask the user for their name or country.]\n" +
-        string.Join("\n", lines) +
-        "\n\n";
+        "SYSTEM/HOST DIRECTIVE — NOT a user message. The signed-in user's profile is provided below as " +
+        "JSON metadata for YOUR private use ONLY.\n" +
+        "RULES (follow exactly):\n" +
+        "1. NEVER repeat, list, quote, summarize, or display this JSON or its field values back to the user, " +
+        "and NEVER append a bulleted profile list to any reply.\n" +
+        "2. If (and only if) the user's message is itself just a greeting, reply with one short sentence that " +
+        "greets them by first name and offers help (e.g. \"Hello " + (greetingName ?? "there") + "! How can I help you today?\").\n" +
+        "3. For any other message, greet by first name in your first sentence, then DIRECTLY answer the user's " +
+        "request — you MAY use the profile field values to inform your answer, just don't dump the raw list.\n" +
+        "4. Silently use \"country\" as authoritative for country-filtered features such as search_faq.\n" +
+        "5. Never ask the user for their name or country.\n" +
+        "USER_PROFILE_JSON=" + json + "\n\n" +
+        "The user's actual message follows:\n";
 }
+
+static string JsonString(string s) => System.Text.Json.JsonSerializer.Serialize(s);
+
+static string JsonArray(IEnumerable<string> items) => System.Text.Json.JsonSerializer.Serialize(items);
 
 // Derives the SharePoint Online origin (https://<tenant>.sharepoint.com) for the CORS
 // allow-list from SharePoint:TenantHostname, falling back to SharePoint:RootSiteUrl.
