@@ -146,16 +146,19 @@ static string BuildProfileContext(OBOFunction.Models.UserProfileContext p)
 
     return
         "SYSTEM/HOST DIRECTIVE — NOT a user message. The signed-in user's profile is provided below as " +
-        "JSON metadata for YOUR private use ONLY.\n" +
+        "JSON metadata about the signed-in user.\n" +
         "RULES (follow exactly):\n" +
-        "1. NEVER repeat, list, quote, summarize, or display this JSON or its field values back to the user, " +
-        "and NEVER append a bulleted profile list to any reply.\n" +
-        "2. If (and only if) the user's message is itself just a greeting, reply with one short sentence that " +
-        "greets them by first name and offers help (e.g. \"Hello " + (greetingName ?? "there") + "! How can I help you today?\").\n" +
-        "3. For any other message, greet by first name in your first sentence, then DIRECTLY answer the user's " +
-        "request — you MAY use the profile field values to inform your answer, just don't dump the raw list.\n" +
-        "4. Silently use \"country\" as authoritative for country-filtered features such as search_faq.\n" +
-        "5. Never ask the user for their name or country.\n" +
+        "1. Do NOT volunteer or dump this profile UNSOLICITED, and NEVER append a bulleted profile list to " +
+        "a greeting or to an unrelated answer.\n" +
+        "2. If the user EXPLICITLY asks about their own profile (e.g. \"what is my profile?\", \"show my " +
+        "details\", \"what's my job title/country/interests?\"), DO answer directly using these values — " +
+        "it is the user asking about THEIR OWN data, so never refuse for privacy reasons.\n" +
+        "3. If the user's message is just a greeting, reply with one short sentence that greets them by " +
+        "first name and offers help (e.g. \"Hello " + (greetingName ?? "there") + "! How can I help you today?\").\n" +
+        "4. For any other message, greet by first name in your first sentence, then DIRECTLY answer — you " +
+        "MAY use the profile field values to inform your answer.\n" +
+        "5. Silently use \"country\" as authoritative for country-filtered features such as search_faq.\n" +
+        "6. Never ask the user for their name or country.\n" +
         "USER_PROFILE_JSON=" + json + "\n\n" +
         "The user's actual message follows:\n";
 }
