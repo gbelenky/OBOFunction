@@ -37,52 +37,92 @@ static string? FirstNonBlank(params string?[] values) =>
     values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
 var credential = new DefaultAzureCredential();
+var projectClient = new AIProjectClient(new Uri(projectEndpoint), credential);
 
-// The agent's ONLY tool is the standalone SharePointMcp server, declared as a
-// Foundry-native MCP tool. Foundry calls it server-side and forwards the caller
-// identity; the MCP server does the OBO exchange to Graph + SharePoint.
-string mcpServerUrl =
-    FirstNonBlank(
-        Environment.GetEnvironmentVariable("MCP_SERVER_URL"),
-        Environment.GetEnvironmentVariable("SHAREPOINT_MCP_URL"))
-    ?? throw new InvalidOperationException(
-        "MCP_SERVER_URL must be set to the SharePointMcp server /mcp endpoint " +
-        "(e.g. https://app-mcp-<token>.azurewebsites.net/mcp).");
-
-// IMPORTANT (verified by decompiling Microsoft.Extensions.AI.OpenAI):
-// HostedMcpServerTool is converted to an OpenAI McpTool that can carry EITHER a
-// `server_url` (+ optional `authorization` header) OR a built-in `connector_id`.
-// It does NOT read AdditionalProperties and CANNOT emit a custom Foundry
-// `project_connection_id`. Therefore a hosted (code) agent cannot bind its
-// in-process MCP tool to a project "OAuth Identity Passthrough" connection.
+// ---- SharePoint profile tool (server-side, per-user OBO) ----
+// Two ways to wire the SharePointMcp server's `get_sharepoint_profile` tool:
 //
-// User-identity OBO to the custom MCP server is delivered per-call via the
-// `authorization` header (the proxy/SPFx path sets it to the user's OBO token).
-// If MCP_USER_AUTHORIZATION is present in this process (e.g. a static dev token),
-// it is forwarded; otherwise the tool is URL-only and the MCP server falls back to
-// its own managed identity (app-only) — correct for local dev, empty profile in
-// the autonomous Playground. The SPFx production path does NOT rely on this agent
-// for auth; the proxy calls the model Responses endpoint with a per-user
-// `authorization` token (see OBOFunction AgentChatClient).
+// 1. TOOLBOX (RECOMMENDED — OAuth identity passthrough). Set TOOLBOX_NAME to a Foundry
+//    Toolbox whose version binds the MCP server to a project "OAuth Identity Passthrough"
+//    connection via `project_connection_id`. We fetch the toolbox's tool DEFINITIONS via
+//    the control plane (`GetToolboxToolsAsync`) and pass them to the agent as SERVER-SIDE
+//    tools — the agent process never connects to the toolbox MCP proxy. At runtime the
+//    Foundry platform invokes them on the agent's behalf and runs the full per-user OAuth
+//    flow (token acquisition, refresh, consent discovery). The first call for a new user
+//    returns an oauth/consent request carrying a consent URL, which the proxy surfaces to
+//    the SPFx user (AgentChatClient -> consentUrl). After the user consents once,
+//    subsequent calls receive a delegated user token and the MCP server's OBO to Graph +
+//    SharePoint returns the full profile (incl. country). This is the documented path for
+//    an OAuth-based MCP server in a hosted agent (toolbox-reference.md).
+//
+// 2. DIRECT MCP URL (fallback / local dev). Set MCP_SERVER_URL to the MCP server's /mcp
+//    endpoint. Declared as a HostedMcpServerTool (server_url only). HostedMcpServerTool
+//    CANNOT emit `project_connection_id` (verified by decompiling M.E.AI.OpenAI), so it
+//    cannot bind to the OAuth passthrough connection — without a per-call `authorization`
+//    header the MCP server falls back to its own managed identity (app-only), which yields
+//    `profileAvailable: false`. Suitable for local dev or the degraded autonomous path.
+string? toolboxName =
+    FirstNonBlank(
+        Environment.GetEnvironmentVariable("TOOLBOX_NAME"),
+        Environment.GetEnvironmentVariable("SHAREPOINT_TOOLBOX_NAME"));
+
 string? mcpUserAuthorization =
     Environment.GetEnvironmentVariable("MCP_USER_AUTHORIZATION");
 
-var mcpTool = new HostedMcpServerTool("SharePointMcp", new Uri(mcpServerUrl))
-{
-    AllowedTools = ["get_sharepoint_profile"],
-    ApprovalMode = HostedMcpServerToolApprovalMode.NeverRequire,
-};
+IList<AITool> tools = [];
 
-if (!string.IsNullOrWhiteSpace(mcpUserAuthorization))
+bool toolboxLoaded = false;
+if (!string.IsNullOrWhiteSpace(toolboxName))
 {
-    string headerValue = mcpUserAuthorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-        ? mcpUserAuthorization
-        : $"Bearer {mcpUserAuthorization}";
-    mcpTool.Headers ??= new Dictionary<string, string>();
-    mcpTool.Headers["Authorization"] = headerValue;
+    // Resilient startup: fetching toolbox tool definitions is a control-plane call. If it
+    // fails or stalls (RBAC, region/preview, transient), do NOT crash the host — fall back
+    // to the direct MCP tool so the agent still starts (degraded: profileAvailable:false).
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        var toolboxTools = await projectClient.GetToolboxToolsAsync(toolboxName, cancellationToken: cts.Token);
+        foreach (var t in toolboxTools)
+        {
+            tools.Add(t);
+        }
+        toolboxLoaded = tools.Count > 0;
+        Console.Error.WriteLine($"[startup] Loaded {tools.Count} tool(s) from toolbox '{toolboxName}'.");
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"[startup] GetToolboxToolsAsync('{toolboxName}') failed: {ex.GetType().Name}: {ex.Message}. " +
+            "Falling back to MCP_SERVER_URL (degraded, app-only profile).");
+    }
 }
 
-IList<AITool> tools = [mcpTool];
+if (!toolboxLoaded)
+{
+    string mcpServerUrl =
+        FirstNonBlank(
+            Environment.GetEnvironmentVariable("MCP_SERVER_URL"),
+            Environment.GetEnvironmentVariable("SHAREPOINT_MCP_URL"))
+        ?? throw new InvalidOperationException(
+            "Either TOOLBOX_NAME (Foundry Toolbox, recommended) or MCP_SERVER_URL " +
+            "(direct MCP /mcp endpoint) must be set.");
+
+    var mcpTool = new HostedMcpServerTool("SharePointMcp", new Uri(mcpServerUrl))
+    {
+        AllowedTools = ["get_sharepoint_profile"],
+        ApprovalMode = HostedMcpServerToolApprovalMode.NeverRequire,
+    };
+
+    if (!string.IsNullOrWhiteSpace(mcpUserAuthorization))
+    {
+        string headerValue = mcpUserAuthorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? mcpUserAuthorization
+            : $"Bearer {mcpUserAuthorization}";
+        mcpTool.Headers ??= new Dictionary<string, string>();
+        mcpTool.Headers["Authorization"] = headerValue;
+    }
+
+    tools.Add(mcpTool);
+}
 
 // ---- Local FAQ / Q&A tool (no OBO, no user identity) ----
 // The agent owns this tool: it queries Azure AI Search for FAQ entries filtered by the user's
@@ -135,7 +175,7 @@ const string instructions =
     "connection. Relay the `detail` field; do not invent profile values. In that case you can still " +
     "answer FAQ questions if the user tells you their country/region.";
 
-AIAgent agent = new AIProjectClient(new Uri(projectEndpoint), credential)
+AIAgent agent = projectClient
     .AsAIAgent(
         model: deploymentName,
         name: "SharePointProfileAgent",

@@ -26,6 +26,12 @@ environment_variables:
     value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
   - name: MCP_SERVER_URL
     value: ${MCP_SERVER_URL}
+  # Foundry Toolbox that binds the SharePointMcp server to the OAuth identity-passthrough
+  # connection (SharePointMCPOAuth) via project_connection_id. When set, the agent fetches
+  # the toolbox's server-side tool definitions (GetToolboxToolsAsync) and Foundry runs the
+  # per-user OAuth flow on invocation. Takes precedence over MCP_SERVER_URL.
+  - name: TOOLBOX_NAME
+    value: ${TOOLBOX_NAME}
   # FAQ / Q&A search tool (local, in-process; no OBO). The agent queries Azure AI Search with its
   # own Managed Identity (grant it 'Search Index Data Reader' on the search service). Set a query
   # key via AZURE_SEARCH_API_KEY only if you cannot use Managed Identity.
