@@ -9,16 +9,32 @@ using SharePointAgent.Tools;
 // ----------------------------------------------------------------------------
 // SharePointAgent — Microsoft Foundry Hosted Agent (.NET 10)
 //
-// Single architecture: the agent declares the standalone SharePointMcp server as a
-// Foundry-native `mcp` tool (HostedMcpServerTool). Foundry resolves and calls the
-// MCP server server-side and forwards the caller's identity to it (the user's OBO
-// token injected by the proxy for the SPFx path, or the Foundry OAuth connection
-// token for the Playground). The MCP server then performs OBO to Graph + SharePoint.
-// The agent itself never touches Graph/SharePoint and holds no embedded profile tool.
+// Profile path (CORE OBO goal) — STANDARD FOUNDRY TOOLBOX PATTERN:
+//   The SharePointMcp server's `get_sharepoint_profile` tool is reached through a
+//   Foundry Toolbox bound to a project OAuth-Identity-Passthrough connection
+//   (`project_connection_id`). We register the toolbox with the hosting layer via
+//   `AddFoundryToolboxes` (Microsoft.Agents.AI.Foundry.Hosting). The hosting layer
+//   connects to the Foundry Toolboxes MCP proxy and injects the toolbox's tools as
+//   host-executed MCP tools wrapped in a CONSENT-AWARE function: the first call for
+//   a new user surfaces an `McpConsentInfo.ConsentUrl`, Foundry runs the per-user
+//   OAuth flow (token acquisition, refresh, consent), and the MCP server then does
+//   OBO to Graph + SharePoint UPS and returns the full profile (incl. country). The
+//   agent process carries NO auth logic — Foundry resolves the connection credential
+//   when it proxies each MCP call. This mirrors the official C# sample
+//   `hosted-agents/agent-framework/toolbox-auth-paths`.
+//
+//   StrictMode is disabled so a consent-pending / transiently-unreachable toolbox
+//   source never bricks host startup — the agent still serves the LOCAL search_faq
+//   tool, and the profile tool surfaces consent on first per-user invocation.
+//
+// Fallback (local dev / degraded): if TOOLBOX_NAME is unset, declare the MCP server
+//   directly by URL (HostedMcpServerTool). HostedMcpServerTool CANNOT emit
+//   `project_connection_id`, so without a per-call user token the MCP server falls
+//   back to its own managed identity (app-only) → `profileAvailable: false`.
 //
 // Hosting uses Microsoft.Agents.AI.Foundry.Hosting (`AddFoundryResponses` /
-// `MapFoundryResponses`) so it runs both locally (`azd ai agent run`) and as a
-// Foundry hosted agent unchanged.
+// `MapFoundryResponses` / `AddFoundryToolboxes`) so it runs both locally
+// (`azd ai agent run`) and as a Foundry hosted agent unchanged.
 // ----------------------------------------------------------------------------
 
 string projectEndpoint =
@@ -39,28 +55,10 @@ static string? FirstNonBlank(params string?[] values) =>
 var credential = new DefaultAzureCredential();
 var projectClient = new AIProjectClient(new Uri(projectEndpoint), credential);
 
-// ---- SharePoint profile tool (server-side, per-user OBO) ----
-// Two ways to wire the SharePointMcp server's `get_sharepoint_profile` tool:
-//
-// 1. TOOLBOX (RECOMMENDED — OAuth identity passthrough). Set TOOLBOX_NAME to a Foundry
-//    Toolbox whose version binds the MCP server to a project "OAuth Identity Passthrough"
-//    connection via `project_connection_id`. We fetch the toolbox's tool DEFINITIONS via
-//    the control plane (`GetToolboxToolsAsync`) and pass them to the agent as SERVER-SIDE
-//    tools — the agent process never connects to the toolbox MCP proxy. At runtime the
-//    Foundry platform invokes them on the agent's behalf and runs the full per-user OAuth
-//    flow (token acquisition, refresh, consent discovery). The first call for a new user
-//    returns an oauth/consent request carrying a consent URL, which the proxy surfaces to
-//    the SPFx user (AgentChatClient -> consentUrl). After the user consents once,
-//    subsequent calls receive a delegated user token and the MCP server's OBO to Graph +
-//    SharePoint returns the full profile (incl. country). This is the documented path for
-//    an OAuth-based MCP server in a hosted agent (toolbox-reference.md).
-//
-// 2. DIRECT MCP URL (fallback / local dev). Set MCP_SERVER_URL to the MCP server's /mcp
-//    endpoint. Declared as a HostedMcpServerTool (server_url only). HostedMcpServerTool
-//    CANNOT emit `project_connection_id` (verified by decompiling M.E.AI.OpenAI), so it
-//    cannot bind to the OAuth passthrough connection — without a per-call `authorization`
-//    header the MCP server falls back to its own managed identity (app-only), which yields
-//    `profileAvailable: false`. Suitable for local dev or the degraded autonomous path.
+// ---- SharePoint profile tool (server-side, per-user OBO via Foundry Toolbox) ----
+// When TOOLBOX_NAME is set the profile tool is registered with the HOSTING layer below
+// (AddFoundryToolboxes) — NOT added to this in-process `tools` list. When it is unset we
+// fall back to a direct HostedMcpServerTool (local dev / degraded app-only).
 string? toolboxName =
     FirstNonBlank(
         Environment.GetEnvironmentVariable("TOOLBOX_NAME"),
@@ -71,40 +69,16 @@ string? mcpUserAuthorization =
 
 IList<AITool> tools = [];
 
-bool toolboxLoaded = false;
-if (!string.IsNullOrWhiteSpace(toolboxName))
+if (string.IsNullOrWhiteSpace(toolboxName))
 {
-    // Resilient startup: fetching toolbox tool definitions is a control-plane call. If it
-    // fails or stalls (RBAC, region/preview, transient), do NOT crash the host — fall back
-    // to the direct MCP tool so the agent still starts (degraded: profileAvailable:false).
-    try
-    {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
-        var toolboxTools = await projectClient.GetToolboxToolsAsync(toolboxName, cancellationToken: cts.Token);
-        foreach (var t in toolboxTools)
-        {
-            tools.Add(t);
-        }
-        toolboxLoaded = tools.Count > 0;
-        Console.Error.WriteLine($"[startup] Loaded {tools.Count} tool(s) from toolbox '{toolboxName}'.");
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine(
-            $"[startup] GetToolboxToolsAsync('{toolboxName}') failed: {ex.GetType().Name}: {ex.Message}. " +
-            "Falling back to MCP_SERVER_URL (degraded, app-only profile).");
-    }
-}
-
-if (!toolboxLoaded)
-{
+    // FALLBACK: no toolbox configured — declare the MCP server directly by URL.
     string mcpServerUrl =
         FirstNonBlank(
             Environment.GetEnvironmentVariable("MCP_SERVER_URL"),
             Environment.GetEnvironmentVariable("SHAREPOINT_MCP_URL"))
         ?? throw new InvalidOperationException(
-            "Either TOOLBOX_NAME (Foundry Toolbox, recommended) or MCP_SERVER_URL " +
-            "(direct MCP /mcp endpoint) must be set.");
+            "Either TOOLBOX_NAME (Foundry Toolbox, recommended for per-user OBO) or " +
+            "MCP_SERVER_URL (direct MCP /mcp endpoint) must be set.");
 
     var mcpTool = new HostedMcpServerTool("SharePointMcp", new Uri(mcpServerUrl))
     {
@@ -122,6 +96,8 @@ if (!toolboxLoaded)
     }
 
     tools.Add(mcpTool);
+    Console.Error.WriteLine(
+        $"[startup] TOOLBOX_NAME unset — using direct MCP tool ({mcpServerUrl}, app-only/degraded).");
 }
 
 // ---- Local FAQ / Q&A tool (no OBO, no user identity) ----
@@ -190,6 +166,35 @@ string port =
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls($"http://+:{port}");
 builder.Services.AddFoundryResponses(agent);
+
+// STANDARD FOUNDRY TOOLBOX PATTERN (per-user OBO via OAuth identity passthrough).
+// The hosting layer connects to the Foundry Toolboxes MCP proxy, discovers the toolbox's
+// tools, and injects them as host-executed, consent-aware MCP tools at request time.
+if (!string.IsNullOrWhiteSpace(toolboxName))
+{
+    // Hosted containers inject FOUNDRY_AGENT_TOOLSET_ENDPOINT (the toolbox MCP proxy base).
+    // When absent (local dev), derive it from the project endpoint so AddFoundryToolboxes
+    // can still reach the toolbox proxy (mirrors the official toolbox-auth-paths sample).
+    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FOUNDRY_AGENT_TOOLSET_ENDPOINT")))
+    {
+        Environment.SetEnvironmentVariable(
+            "FOUNDRY_AGENT_TOOLSET_ENDPOINT",
+            $"{projectEndpoint.TrimEnd('/')}/toolboxes");
+    }
+
+    builder.Services.AddFoundryToolboxes(
+        options =>
+        {
+            options.ApiVersion = "v1";
+            // Do NOT brick startup if the toolbox source needs per-user consent or is
+            // transiently unreachable — the agent still serves the LOCAL search_faq tool,
+            // and the profile tool surfaces its consent URL on first per-user invocation.
+            options.StrictMode = false;
+        },
+        toolboxName);
+
+    Console.Error.WriteLine($"[startup] Registered Foundry Toolbox '{toolboxName}' (consent-aware, StrictMode=false).");
+}
 
 var app = builder.Build();
 app.MapFoundryResponses();
