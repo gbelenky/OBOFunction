@@ -138,9 +138,11 @@ static string BuildProfileContext(OBOFunction.Models.UserProfileContext p)
         lines.Add($"- Country: {p.Country} (authoritative for country-filtered features such as search_faq)");
 
     return
-        "[Profile context for the signed-in user, provided by the host. Greet the user by name and " +
-        "treat the country as authoritative for any country-filtered features; do not ask the user " +
-        "for their name or country.]\n" +
+        "[Profile context for the signed-in user, provided by the host. This is background data for " +
+        "YOU only — do NOT repeat, list, summarize, or display it back to the user. Greet the user " +
+        "by first name only (e.g. \"Hello " + (greetingName ?? "there") + "!\") and then answer their " +
+        "request. Use the country silently as authoritative for any country-filtered features such as " +
+        "search_faq. Never ask the user for their name or country.]\n" +
         string.Join("\n", lines) +
         "\n\n";
 }
