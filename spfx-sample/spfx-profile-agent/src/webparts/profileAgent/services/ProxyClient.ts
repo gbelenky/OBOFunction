@@ -1,8 +1,9 @@
 import { AadHttpClient, AadHttpClientFactory, HttpClientResponse } from '@microsoft/sp-http';
 
 // The proxy API app registration (api://<proxy-app-client-id>) and its public base URL.
-// The browser talks ONLY to the proxy; it fronts the /api/agent/chat endpoint, which
-// delegates all profile data retrieval to the Foundry agent (per-user MCP tool).
+// The browser talks ONLY to the proxy. The proxy authenticates the user, resolves their
+// SharePoint/Graph profile via OBO, injects it as context, and calls the Foundry hosted agent
+// on the user's behalf — the front-end stays agnostic of profile and tool logic.
 export const PROXY_RESOURCE = 'api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a';
 export const PROXY_BASE = 'https://app-proxy-z6vb2tjg2j4ye.azurewebsites.net';
 
@@ -10,7 +11,6 @@ export interface ChatReply {
   reply: string;
   responseId: string;
   status: string;
-  consentUrl?: string;
 }
 
 /** Thin client over the OBO proxy's agent-chat endpoint. */
@@ -28,8 +28,8 @@ export class ProxyClient {
   }
 
   /**
-   * Sends a chat turn to the agent via the proxy. If the agent needs OAuth consent, returns a
-   * ChatReply with status 'consent_required' and a consentUrl; open it, then call again unchanged.
+   * Sends a chat turn to the agent via the proxy and returns the agent's reply. Multi-turn
+   * state is carried server-side via previousResponseId.
    */
   public async ask(message: string): Promise<ChatReply> {
     return this.post({ message, previousResponseId: this.previousResponseId });

@@ -116,20 +116,6 @@
       }
     },
     {
-      "label": "build (mcp)",
-      "command": "dotnet",
-      "args": [
-        "build",
-        "/property:GenerateFullPaths=true",
-        "/consoleloggerparameters:NoSummary"
-      ],
-      "type": "process",
-      "problemMatcher": "$msCompile",
-      "options": {
-        "cwd": "${workspaceFolder}/src/SharePointMcp"
-      }
-    },
-    {
       "label": "run agent host (debug)",
       "type": "shell",
       "command": "dotnet",

@@ -3,9 +3,9 @@
 # Requires: REST Client extension (humao.rest-client)
 #
 # The proxy exposes ONLY POST /api/agent/chat (plus /liveness, /readiness). It validates the
-# inbound user JWT (aud api://<proxy-app>), OBO-exchanges it to the MCP audience, and delegates
-# ALL profile retrieval to the Foundry agent (which calls the SharePointMcp get_sharepoint_profile
-# tool as the signed-in user). The proxy never reads Graph/SharePoint itself.
+# inbound user JWT (aud api://<proxy-app>), resolves the signed-in user's profile via OBO
+# (SharePoint UPS + Graph) on the first turn, injects it as context, and calls the Foundry
+# hosted agent as the user. The agent answers and runs its local search_faq tool.
 #
 # Token strategy: shell out to `az account get-access-token`. Never commit a real token.
 #   az account get-access-token --resource api://<proxy-app-client-id> --query accessToken -o tsv | Set-Clipboard

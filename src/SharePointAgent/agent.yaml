@@ -3,13 +3,11 @@
 kind: hosted
 name: SharePointProfileAgent
 description: >-
-  Chat agent that loads the signed-in user's Microsoft Graph + SharePoint profile
-  by calling the SharePointMcp server's get_sharepoint_profile tool (a Foundry MCP
-  tool referencing the server URL). In the autonomous Playground no user token is
-  present, so the MCP server falls back to its managed identity (app-only) and
-  per-user fields are empty. For per-user data, invoke via the proxy's
-  POST /api/agent/chat, which calls the model Responses endpoint with a per-user
-  OBO authorization token on the MCP tool.
+  Chat agent for the signed-in SharePoint user. The host (the agent-chat proxy) injects the
+  user's Microsoft Graph + SharePoint profile as a USER_PROFILE_JSON developer/context message
+  on the first turn, so the agent greets by first name and filters FAQ results by the user's
+  country. The only tool is the local in-process search_faq (Azure AI Search), invoked with the
+  agent's own identity. No MCP server, no per-user OBO in the agent.
 
 protocols:
   - protocol: responses
@@ -24,14 +22,6 @@ environment_variables:
     value: ${FOUNDRY_PROJECT_ENDPOINT}
   - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
     value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
-  - name: MCP_SERVER_URL
-    value: ${MCP_SERVER_URL}
-  # Foundry Toolbox that binds the SharePointMcp server to the OAuth identity-passthrough
-  # connection (SharePointMCPOAuth) via project_connection_id. When set, the agent fetches
-  # the toolbox's server-side tool definitions (GetToolboxToolsAsync) and Foundry runs the
-  # per-user OAuth flow on invocation. Takes precedence over MCP_SERVER_URL.
-  - name: TOOLBOX_NAME
-    value: ${TOOLBOX_NAME}
   # FAQ / Q&A search tool (local, in-process; no OBO). The agent queries Azure AI Search with its
   # own Managed Identity (grant it 'Search Index Data Reader' on the search service). Set a query
   # key via AZURE_SEARCH_API_KEY only if you cannot use Managed Identity.

@@ -7,8 +7,7 @@ namespace OBOFunction.Services;
 /// including country) via On-Behalf-Of, so the proxy can hand the agent enough context to greet
 /// the user by name and drive country-filtered features such as <c>search_faq</c>. This is the
 /// "Option A" path: it is required because Foundry OAuth identity passthrough cannot deliver the
-/// per-user profile through a custom SPFx → proxy → agent chain (see
-/// <c>docs/foundry-oauth-passthrough-findings.md</c>).
+/// per-user profile through a custom SPFx → proxy → agent chain (see <c>ARCHITECTURE.md</c> §4).
 /// <para>
 /// The service stays <b>tool-agnostic</b>: it never enumerates, declares, or whitelists agent
 /// tools. It returns only profile data; the proxy injects it as conversation context.

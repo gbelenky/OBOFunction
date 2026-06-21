@@ -13,8 +13,8 @@ namespace OBOFunction.Services;
 public static class ResponsesPayloadParser
 {
     /// <summary>
-    /// Parses a Responses payload. Detects an OAuth/MCP consent request and surfaces its
-    /// link; otherwise prefers <c>output_text</c>, falling back to <c>output[].content[].text</c>.
+    /// Parses a Responses payload. Surfaces a failed run's error message; otherwise prefers
+    /// <c>output_text</c>, falling back to <c>output[].content[].text</c>.
     /// </summary>
     public static AgentChatReply ParseReply(string json)
     {
@@ -22,17 +22,6 @@ public static class ResponsesPayloadParser
         var root = doc.RootElement;
 
         var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
-
-        // --- Surface a consent ceremony if the run is awaiting delegated consent. ---
-        if (TryFindConsentLink(root, out var consentUrl))
-        {
-            return new AgentChatReply(
-                Reply: "Additional sign-in is required to access your profile. " +
-                       "Open the consent link, approve access, then resend your message.",
-                ResponseId: id,
-                Status: "consent_required",
-                ConsentUrl: consentUrl);
-        }
 
         // --- Surface a failed run (e.g. a tool error) instead of returning an empty reply. ---
         if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.String
@@ -73,48 +62,5 @@ public static class ResponsesPayloadParser
         }
 
         return new AgentChatReply(sb.ToString(), id);
-    }
-
-    /// <summary>
-    /// Scans the Responses <c>output[]</c> for an OAuth identity-passthrough consent request and
-    /// extracts its link. The preview surface is not finalised, so this is intentionally tolerant:
-    /// it matches any output item whose <c>type</c> mentions "consent" or "approval" and pulls the
-    /// first link-shaped string (<c>consent_link</c>, <c>consent_url</c>, <c>url</c>,
-    /// <c>approval_url</c>, or a nested <c>action.url</c>).
-    /// </summary>
-    public static bool TryFindConsentLink(JsonElement root, out string consentUrl)
-    {
-        consentUrl = string.Empty;
-        if (!root.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.Array)
-            return false;
-
-        foreach (var item in output.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.Object) continue;
-
-            var type = item.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
-            var looksLikeConsent =
-                type.Contains("consent", StringComparison.OrdinalIgnoreCase) ||
-                type.Contains("approval", StringComparison.OrdinalIgnoreCase);
-            if (!looksLikeConsent) continue;
-
-            foreach (var key in new[] { "consent_link", "consent_url", "url", "approval_url" })
-            {
-                if (item.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String)
-                {
-                    var s = v.GetString();
-                    if (!string.IsNullOrWhiteSpace(s)) { consentUrl = s!; return true; }
-                }
-            }
-
-            if (item.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.Object
-                && action.TryGetProperty("url", out var au) && au.ValueKind == JsonValueKind.String)
-            {
-                var s = au.GetString();
-                if (!string.IsNullOrWhiteSpace(s)) { consentUrl = s!; return true; }
-            }
-        }
-
-        return false;
     }
 }

@@ -11,11 +11,12 @@ var builder = WebApplication.CreateBuilder(args);
 // ---------------------------------------------------------------------------
 // OBOFunction — agent-chat proxy (OBO), hosted on App Service.
 //
-// The proxy ONLY delegates profile data retrieval to the Foundry agent: it OBO-exchanges
-// the inbound SPFx user token to the SharePointMcp audience and attaches it to the agent's
-// `mcp` tool, so the agent (model + MCP) reads the profile AS THE USER. The proxy never
-// reads Graph/SharePoint itself.
-//   POST /api/agent/chat  -> validated user JWT -> OBO -> Foundry model + per-user MCP tool
+// The proxy authenticates the SPFx caller and calls the Foundry hosted agent AS THAT USER.
+// On the first turn it resolves the signed-in user's SharePoint/Graph profile via OBO
+// (ProfileContextService, "Option A") and injects it as a developer-role context item, so the
+// agent can greet by name and filter FAQs by country. The proxy is tool-agnostic — the agent
+// owns its own tools (local search_faq). The proxy never reads Graph/SharePoint for tool data.
+//   POST /api/agent/chat  -> validated user JWT -> OBO profile + OBO to ai.azure.com -> agent
 // ---------------------------------------------------------------------------
 
 // Key Vault as a configuration source (secrets referenced by name, MSI to read).

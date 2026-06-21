@@ -25,16 +25,6 @@ param sharepointTenantHostname string
 @description('Foundry project endpoint URL.')
 param foundryProjectEndpoint string = ''
 
-@description('Foundry agent ID (asst_xxx).')
-param foundryAgentId string = ''
-
-@description('SharePointMcp API app-registration (client) ID, e.g. the api://obo-sp-mcp app. Empty until created.')
-param mcpClientId string = ''
-
-@secure()
-@description('SharePointMcp API app-registration client secret. Optional: when empty, MCP OBO is disabled until set. Seeded to Key Vault as Mcp--ClientSecret.')
-param mcpClientSecret string = ''
-
 @description('Principal ID of the user/SP running azd, for KV access during seeding.')
 param principalId string = ''
 
@@ -64,9 +54,6 @@ module resources 'modules/resources.bicep' = {
     aadClientSecret: aadClientSecret
     sharepointTenantHostname: sharepointTenantHostname
     foundryProjectEndpoint: foundryProjectEndpoint
-    foundryAgentId: foundryAgentId
-    mcpClientId: mcpClientId
-    mcpClientSecret: mcpClientSecret
     principalId: principalId
   }
 }
@@ -76,9 +63,6 @@ output AZURE_TENANT_ID string = aadTenantId
 output AZURE_RESOURCE_GROUP string = rg.name
 output SERVICE_API_NAME string = resources.outputs.proxyAppName
 output SERVICE_API_HOSTNAME string = resources.outputs.proxyAppHostname
-output SERVICE_SHAREPOINT_MCP_NAME string = resources.outputs.mcpAppName
-output SERVICE_SHAREPOINT_MCP_HOSTNAME string = resources.outputs.mcpAppHostname
-output MCP_SERVER_URL string = '${resources.outputs.mcpAppHostname}/mcp'
 output AZURE_KEY_VAULT_NAME string = resources.outputs.keyVaultName
 output AZURE_KEY_VAULT_ENDPOINT string = resources.outputs.keyVaultEndpoint
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = resources.outputs.appInsightsConnectionString

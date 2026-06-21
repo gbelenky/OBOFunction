@@ -3,8 +3,8 @@ namespace OBOFunction.Models;
 /// <summary>
 /// The slim signed-in-user profile the proxy resolves via OBO (Option A) and injects as
 /// conversation context so the hosted agent can greet the user by name and use the country for
-/// country-filtered features (e.g. <c>search_faq</c>). Mirrors the SharePointMcp slim profile, but
-/// is a local copy so the proxy carries no dependency on that project.
+/// country-filtered features (e.g. <c>search_faq</c>). Built from SharePoint UPS (<c>GetMyProperties</c>)
+/// merged with Graph <c>/me</c>.
 /// <para>
 /// Only non-personal-bulk fields the agent actually needs are carried. All fields are optional;
 /// any that cannot be resolved are simply omitted from the injected context.

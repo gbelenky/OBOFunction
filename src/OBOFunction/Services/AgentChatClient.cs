@@ -29,13 +29,13 @@ namespace OBOFunction.Services;
 /// <item><description>The proxy POSTs the turn to the agent's Responses endpoint with that user
 /// token. No user token is ever stored.</description></item>
 /// </list>
-/// <para><b>Country context:</b> Foundry OAuth identity passthrough cannot deliver the per-user
-/// SharePoint profile through this custom SPFx → proxy → agent chain (hosted-agent tool discovery
-/// runs under the agent's managed identity, so the passthrough tool is dropped and no consent is
-/// surfaced — see <c>docs/foundry-oauth-passthrough-findings.md</c>). As a result the proxy
-/// resolves the user's country itself (Option A, <see cref="IProfileCountryService"/>) and the
-/// endpoint injects it as plain conversation context before calling this client. This client
-/// remains tool-agnostic; it just forwards the (possibly enriched) message.</para>
+/// <para><b>Profile context (Option A):</b> Foundry OAuth identity passthrough cannot deliver the
+/// per-user SharePoint profile through a custom SPFx → proxy → agent chain (hosted-agent tool
+/// discovery runs under the agent's managed identity, so a passthrough tool is dropped and no
+/// consent is surfaced). Instead the endpoint resolves the user's profile itself via OBO
+/// (<see cref="IProfileContextService"/>) and injects it as a developer-role item before calling
+/// this client. This client remains tool-agnostic; it just forwards the message and that
+/// host-built context.</para>
 /// </remarks>
 public sealed class AgentChatClient : IAgentChatClient
 {

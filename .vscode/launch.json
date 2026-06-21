@@ -24,24 +24,6 @@
       "type": "coreclr",
       "request": "attach",
       "processId": "${command:pickProcess}"
-    },
-    {
-      "name": "Debug SharePointMcp (host)",
-      "type": "coreclr",
-      "request": "launch",
-      "preLaunchTask": "build (mcp)",
-      "program": "${workspaceFolder}/src/SharePointMcp/bin/Debug/net8.0/SharePointMcp.dll",
-      "cwd": "${workspaceFolder}/src/SharePointMcp",
-      "console": "integratedTerminal",
-      "stopAtEntry": false,
-      "launchSettingsFilePath": "${workspaceFolder}/src/SharePointMcp/Properties/launchSettings.json",
-      "launchSettingsProfile": "SharePointMcp"
-    },
-    {
-      "name": "Attach to SharePointMcp",
-      "type": "coreclr",
-      "request": "attach",
-      "processId": "${command:pickProcess}"
     }
   ]
 }

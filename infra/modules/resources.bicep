@@ -13,18 +13,10 @@ param aadClientId string
 param aadClientSecret string
 param sharepointTenantHostname string
 param foundryProjectEndpoint string
-param foundryAgentId string
 param principalId string
-
-@description('Client ID of the SharePointMcp API app registration (api://<id>). Empty until created.')
-param mcpClientId string = ''
-@description('Client secret of the SharePointMcp API app registration. Seeded to Key Vault as Mcp--ClientSecret.')
-@secure()
-param mcpClientSecret string = ''
 
 var planName = 'plan-${resourceToken}'
 var proxyAppName = 'app-proxy-${resourceToken}'
-var mcpAppName = 'app-mcp-${resourceToken}'
 var laName = 'log-${resourceToken}'
 var aiName = 'appi-${resourceToken}'
 var kvName = 'kv-${take(resourceToken, 20)}'
@@ -35,9 +27,6 @@ var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6' // Key Vault Se
 var kvSecretsOfficerRoleId = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7' // Key Vault Secrets Officer (for azd principal to seed)
 
 var hasClientSecret = !empty(aadClientSecret)
-var hasMcpSecret = !empty(mcpClientSecret)
-var hasMcpClient = !empty(mcpClientId)
-var mcpServerUrl = 'https://${mcpAppName}.azurewebsites.net/mcp'
 
 // User-assigned managed identity shared by both web apps
 module uami 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = {
@@ -101,19 +90,12 @@ module kv 'br/public:avm/res/key-vault/vault:0.10.2' = {
           principalType: 'User'
         }
       ])
-    secrets: concat(
-      hasClientSecret ? [
-        {
-          name: 'AzureAd--ClientSecret'
-          value: aadClientSecret
-        }
-      ] : [],
-      hasMcpSecret ? [
-        {
-          name: 'Mcp--ClientSecret'
-          value: mcpClientSecret
-        }
-      ] : [])
+    secrets: hasClientSecret ? [
+      {
+        name: 'AzureAd--ClientSecret'
+        value: aadClientSecret
+      }
+    ] : []
   }
 }
 
@@ -173,7 +155,6 @@ module proxyApp 'br/public:avm/res/web/site:0.11.1' = {
         'SharePoint__TenantHostname': sharepointTenantHostname
 
         'Foundry__ProjectEndpoint': foundryProjectEndpoint
-        'Foundry__AgentId': foundryAgentId
         'Foundry__AgentName': 'SharePointProfileAgent'
         // The proxy calls ONLY the hosted agent (tool-agnostic). The agent owns its own tools.
         'Foundry__AgentResponsesUrl': '${foundryProjectEndpoint}/agents/SharePointProfileAgent/endpoint/protocols/openai/responses?api-version=v1'
@@ -188,63 +169,8 @@ module proxyApp 'br/public:avm/res/web/site:0.11.1' = {
   }
 }
 
-// SharePoint MCP server — azd service "sharepoint-mcp"
-module mcpApp 'br/public:avm/res/web/site:0.11.1' = {
-  name: 'mcp-deploy'
-  params: {
-    name: mcpAppName
-    location: location
-    tags: union(tags, { 'azd-service-name': 'sharepoint-mcp' })
-    kind: 'app,linux'
-    serverFarmResourceId: plan.outputs.resourceId
-    managedIdentities: {
-      userAssignedResourceIds: [
-        uami.outputs.resourceId
-      ]
-    }
-    siteConfig: {
-      linuxFxVersion: 'DOTNETCORE|8.0'
-      alwaysOn: true
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-      http20Enabled: true
-      cors: {
-        allowedOrigins: [
-          'https://${sharepointTenantHostname}'
-        ]
-        supportCredentials: true
-      }
-    }
-    httpsOnly: true
-    appSettingsKeyValuePairs: union(
-      {
-        // SharePointMcp reads PORT and binds http://+:{PORT}; App Service Linux fronts on 8080.
-        PORT: '8080'
-        APPLICATIONINSIGHTS_CONNECTION_STRING: ai.outputs.connectionString
-        APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${uami.outputs.clientId};Authorization=AAD'
-        SHAREPOINT_TENANT_HOSTNAME: sharepointTenantHostname
-        SHAREPOINT_ROOT_SITE_URL: 'https://${sharepointTenantHostname}'
-        'SharePoint__TenantHostname': sharepointTenantHostname
-        AZURE_CLIENT_ID: uami.outputs.clientId
-      },
-      // OBO config: the MCP server exchanges the forwarded user token for Graph + SharePoint
-      // tokens via its own app registration. Present once the MCP app reg + secret exist.
-      hasMcpClient ? {
-        'AzureAd__Instance': 'https://login.microsoftonline.com/'
-        'AzureAd__TenantId': aadTenantId
-        'AzureAd__ClientId': mcpClientId
-      } : {},
-      hasMcpSecret ? {
-        'KeyVault__Uri': kv.outputs.uri
-      } : {}
-    )
-  }
-}
-
 output proxyAppName string = proxyApp.outputs.name
 output proxyAppHostname string = 'https://${proxyApp.outputs.defaultHostname}'
-output mcpAppName string = mcpApp.outputs.name
-output mcpAppHostname string = 'https://${mcpApp.outputs.defaultHostname}'
 output keyVaultName string = kv.outputs.name
 output keyVaultEndpoint string = kv.outputs.uri
 output appInsightsConnectionString string = ai.outputs.connectionString

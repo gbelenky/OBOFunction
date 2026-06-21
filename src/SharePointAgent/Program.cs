@@ -9,32 +9,18 @@ using SharePointAgent.Tools;
 // ----------------------------------------------------------------------------
 // SharePointAgent — Microsoft Foundry Hosted Agent (.NET 10)
 //
-// Profile path (CORE OBO goal) — STANDARD FOUNDRY TOOLBOX PATTERN:
-//   The SharePointMcp server's `get_sharepoint_profile` tool is reached through a
-//   Foundry Toolbox bound to a project OAuth-Identity-Passthrough connection
-//   (`project_connection_id`). We register the toolbox with the hosting layer via
-//   `AddFoundryToolboxes` (Microsoft.Agents.AI.Foundry.Hosting). The hosting layer
-//   connects to the Foundry Toolboxes MCP proxy and injects the toolbox's tools as
-//   host-executed MCP tools wrapped in a CONSENT-AWARE function: the first call for
-//   a new user surfaces an `McpConsentInfo.ConsentUrl`, Foundry runs the per-user
-//   OAuth flow (token acquisition, refresh, consent), and the MCP server then does
-//   OBO to Graph + SharePoint UPS and returns the full profile (incl. country). The
-//   agent process carries NO auth logic — Foundry resolves the connection credential
-//   when it proxies each MCP call. This mirrors the official C# sample
-//   `hosted-agents/agent-framework/toolbox-auth-paths`.
+// The agent owns its tools. The signed-in user's profile is NOT fetched here — the
+// proxy (POST /api/agent/chat) resolves it via OBO and injects it as a USER_PROFILE_JSON
+// developer/context message on the first turn ("Option A"). The agent treats that as
+// background knowledge so it can greet by first name and filter FAQs by country.
 //
-//   StrictMode is disabled so a consent-pending / transiently-unreachable toolbox
-//   source never bricks host startup — the agent still serves the LOCAL search_faq
-//   tool, and the profile tool surfaces consent on first per-user invocation.
-//
-// Fallback (local dev / degraded): if TOOLBOX_NAME is unset, declare the MCP server
-//   directly by URL (HostedMcpServerTool). HostedMcpServerTool CANNOT emit
-//   `project_connection_id`, so without a per-call user token the MCP server falls
-//   back to its own managed identity (app-only) → `profileAvailable: false`.
+// The only tool is the LOCAL, in-process `search_faq` (Azure AI Search), which runs with
+// the agent's OWN identity (Managed Identity in Azure / DefaultAzureCredential locally) and
+// needs only the country string from the injected profile — no OBO, no user token, no MCP.
 //
 // Hosting uses Microsoft.Agents.AI.Foundry.Hosting (`AddFoundryResponses` /
-// `MapFoundryResponses` / `AddFoundryToolboxes`) so it runs both locally
-// (`azd ai agent run`) and as a Foundry hosted agent unchanged.
+// `MapFoundryResponses`) so it runs both locally (`azd ai agent run`) and as a Foundry
+// hosted agent unchanged.
 // ----------------------------------------------------------------------------
 
 string projectEndpoint =

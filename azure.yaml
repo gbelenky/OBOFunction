@@ -27,7 +27,3 @@ services:
                     capacity: 30
                     name: GlobalStandard
             startupCommand: dotnet SharePointAgent.dll
-    sharepoint-mcp:
-        project: ./src/SharePointMcp
-        host: appservice
-        language: dotnet

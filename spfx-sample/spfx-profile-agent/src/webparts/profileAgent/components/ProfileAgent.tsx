@@ -13,7 +13,6 @@ interface IProfileAgentState {
   chat: IChatTurn[];
   asking: boolean;
   chatError: string | undefined;
-  consentUrl: string | undefined;
   maximized: boolean;
 }
 
@@ -28,7 +27,6 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
       chat: [],
       asking: false,
       chatError: undefined,
-      consentUrl: undefined,
       maximized: false
     };
   }
@@ -42,16 +40,12 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
   }
 
   private greet = (): void => {
-    this.setState({ asking: true, chatError: undefined, consentUrl: undefined });
+    this.setState({ asking: true, chatError: undefined });
     // Front-end is agnostic: it does NOT prescribe greeting wording or ask for any profile
     // fields. It only signals "the chat was opened" via greet(); the proxy + agent own the
     // greeting text (one short sentence, by first name, no profile dump).
     this.proxy.greet()
       .then((data: ChatReply) => {
-        if (data.status === 'consent_required' && data.consentUrl) {
-          this.setState({ asking: false, consentUrl: data.consentUrl });
-          return;
-        }
         this.setState(prev => ({
           asking: false,
           chat: [...prev.chat, { role: 'agent', text: data.reply }]
@@ -68,16 +62,11 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
     this.setState(prev => ({
       asking: true,
       chatError: undefined,
-      consentUrl: undefined,
       input: '',
       chat: [...prev.chat, { role: 'user', text: message }]
     }));
     this.proxy.ask(message)
       .then((data: ChatReply) => {
-        if (data.status === 'consent_required' && data.consentUrl) {
-          this.setState({ asking: false, consentUrl: data.consentUrl });
-          return;
-        }
         this.setState(prev => ({
           asking: false,
           chat: [...prev.chat, { role: 'agent', text: data.reply }]
@@ -98,7 +87,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
 
   public render(): React.ReactElement<IProfileAgentProps> {
     const { hasTeamsContext } = this.props;
-    const { input, chat, asking, chatError, consentUrl, maximized } = this.state;
+    const { input, chat, asking, chatError, maximized } = this.state;
     const sectionClass =
       `${styles.profileAgent} ${hasTeamsContext ? styles.teams : ''} ${maximized ? styles.maximized : ''}`;
     return (
@@ -131,12 +120,6 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
               ))
             )}
           </div>
-          {consentUrl ? (
-            <p className={styles.error}>
-              The agent needs your consent.{' '}
-              <a href={consentUrl} target="_blank" rel="noreferrer">Grant consent</a>, then ask again.
-            </p>
-          ) : undefined}
           {chatError ? <p className={styles.error}>{chatError}</p> : undefined}
           <div className={styles.inputRow}>
             <input
