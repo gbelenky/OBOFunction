@@ -46,8 +46,8 @@ builder.Services.AddCors(o => o.AddPolicy(CorsPolicy, p =>
 
 builder.Services.AddScoped<IUserTokenAccessor, UserTokenAccessor>();
 builder.Services.AddSingleton<IAgentChatClient, AgentChatClient>();
-// Option A: resolve the signed-in user's country via OBO so the proxy can inject it as context.
-builder.Services.AddSingleton<IProfileCountryService, ProfileCountryService>();
+// Option A: resolve the signed-in user's slim profile via OBO so the proxy can inject it as context.
+builder.Services.AddSingleton<IProfileContextService, ProfileContextService>();
 
 var app = builder.Build();
 
@@ -65,7 +65,7 @@ app.MapPost("/api/agent/chat", [Authorize] async (
     [FromBody] AgentChatRequest? body,
     IAgentChatClient agent,
     IUserTokenAccessor tokens,
-    IProfileCountryService profileCountry,
+    IProfileContextService profileContext,
     ILoggerFactory loggerFactory,
     CancellationToken ct) =>
 {
@@ -77,26 +77,22 @@ app.MapPost("/api/agent/chat", [Authorize] async (
         if (body is null || string.IsNullOrWhiteSpace(body.Message))
             return Problem("A non-empty 'message' is required.", "Invalid request", StatusCodes.Status400BadRequest);
 
-        // Option A — inject the signed-in user's country as conversation context on the FIRST
-        // turn only (follow-ups inherit it via previous_response_id). The proxy stays unaware of
-        // the agent's tools; it only prepends a plain country string the model uses for
-        // country-filtered features (search_faq). Best-effort: a null country is simply omitted.
+        // Option A — inject the signed-in user's slim profile as conversation context on the FIRST
+        // turn only (follow-ups inherit it via previous_response_id). The proxy stays unaware of the
+        // agent's tools; it only prepends profile data the agent uses to greet the user by name and
+        // to drive country-filtered features (search_faq). Best-effort: empty profile is omitted.
         var outgoing = body;
         if (string.IsNullOrWhiteSpace(body.PreviousResponseId))
         {
-            var country = await profileCountry.GetCountryAsync(assertion, ct);
-            if (!string.IsNullOrWhiteSpace(country))
+            var profile = await profileContext.GetProfileAsync(assertion, ct);
+            if (profile.HasAny)
             {
-                var context =
-                    $"[Profile context provided by the host: the signed-in user's country is \"{country}\". " +
-                    "Treat this as the authoritative country for any country-filtered features such as " +
-                    "search_faq; do not ask the user for their country.]\n\n";
-                outgoing = body with { Message = context + body.Message };
-                logger.LogInformation("Injected profile country context into the first agent turn.");
+                outgoing = body with { Message = BuildProfileContext(profile) + body.Message };
+                logger.LogInformation("Injected profile context into the first agent turn.");
             }
             else
             {
-                logger.LogInformation("No country resolved for the user; proceeding without country context.");
+                logger.LogInformation("No profile resolved for the user; proceeding without profile context.");
             }
         }
 
@@ -119,6 +115,35 @@ app.Run();
 
 static IResult Problem(string detail, string title, int status) =>
     Results.Problem(detail: detail, title: title, statusCode: status);
+
+// Builds the host-provided profile context block prepended to the first agent turn. The agent uses
+// it to greet the user by name and to drive country-filtered features (search_faq) without asking.
+static string BuildProfileContext(OBOFunction.Models.UserProfileContext p)
+{
+    var lines = new List<string>();
+    var greetingName = !string.IsNullOrWhiteSpace(p.FirstName) ? p.FirstName : p.Name;
+    if (!string.IsNullOrWhiteSpace(greetingName))
+        lines.Add($"- Name: {p.Name ?? greetingName} (greet them as \"{greetingName}\")");
+    if (!string.IsNullOrWhiteSpace(p.Email))
+        lines.Add($"- Email: {p.Email}");
+    if (!string.IsNullOrWhiteSpace(p.JobTitle))
+        lines.Add($"- Job title: {p.JobTitle}");
+    if (p.Responsibilities.Count > 0)
+        lines.Add($"- Responsibilities: {string.Join(", ", p.Responsibilities)}");
+    if (p.PastProjects.Count > 0)
+        lines.Add($"- Past projects: {string.Join(", ", p.PastProjects)}");
+    if (p.Interests.Count > 0)
+        lines.Add($"- Interests: {string.Join(", ", p.Interests)}");
+    if (!string.IsNullOrWhiteSpace(p.Country))
+        lines.Add($"- Country: {p.Country} (authoritative for country-filtered features such as search_faq)");
+
+    return
+        "[Profile context for the signed-in user, provided by the host. Greet the user by name and " +
+        "treat the country as authoritative for any country-filtered features; do not ask the user " +
+        "for their name or country.]\n" +
+        string.Join("\n", lines) +
+        "\n\n";
+}
 
 // Derives the SharePoint Online origin (https://<tenant>.sharepoint.com) for the CORS
 // allow-list from SharePoint:TenantHostname, falling back to SharePoint:RootSiteUrl.
