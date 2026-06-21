@@ -121,7 +121,25 @@ public sealed class AgentChatClient : IAgentChatClient
         if (!string.IsNullOrWhiteSpace(request.PreviousResponseId))
             payload["previous_response_id"] = request.PreviousResponseId;
 
-        var raw = await PostAgentAsync(payload, aiPlaneUserToken, ct).ConfigureAwait(false);
+        string raw;
+        try
+        {
+            raw = await PostAgentAsync(payload, aiPlaneUserToken, ct).ConfigureAwait(false);
+        }
+        catch (AgentResponsesException ex) when (
+            !string.IsNullOrWhiteSpace(request.PreviousResponseId) && ex.IsDanglingToolCall)
+        {
+            // The conversation we were asked to continue (previous_response_id) contains a function
+            // tool call that never received its output — typically leftover state from an earlier
+            // agent version (e.g. a now-removed MCP/profile tool). Continuing it is impossible, so
+            // recover gracefully by retrying as a FRESH conversation (drop previous_response_id).
+            _logger.LogWarning(
+                "Continuation {PrevId} has a dangling tool call; retrying as a fresh conversation. Detail: {Detail}",
+                request.PreviousResponseId, ex.Body);
+            payload.Remove("previous_response_id");
+            raw = await PostAgentAsync(payload, aiPlaneUserToken, ct).ConfigureAwait(false);
+        }
+
         return ParseReply(raw);
     }
 
@@ -139,7 +157,7 @@ public sealed class AgentChatClient : IAgentChatClient
         if (!resp.IsSuccessStatusCode)
         {
             _logger.LogError("Agent Responses call failed ({Status}): {Body}", (int)resp.StatusCode, raw);
-            throw new HttpRequestException($"Agent call failed with status {(int)resp.StatusCode}.");
+            throw new AgentResponsesException((int)resp.StatusCode, raw);
         }
 
         return raw;
@@ -150,4 +168,30 @@ public sealed class AgentChatClient : IAgentChatClient
     /// so the (preview, fragile) parsing is unit-testable in isolation.
     /// </summary>
     private static AgentChatReply ParseReply(string json) => ResponsesPayloadParser.ParseReply(json);
+}
+
+/// <summary>
+/// Carries a non-success response from the Foundry agent Responses endpoint so the caller can
+/// inspect the status and body (e.g. to detect a dangling-tool-call continuation error and retry).
+/// </summary>
+public sealed class AgentResponsesException : Exception
+{
+    public AgentResponsesException(int statusCode, string body)
+        : base($"Agent call failed with status {statusCode}.")
+    {
+        StatusCode = statusCode;
+        Body = body;
+    }
+
+    public int StatusCode { get; }
+
+    public string Body { get; }
+
+    /// <summary>
+    /// True when the error indicates the continued conversation has a function tool call with no
+    /// submitted output — i.e. <c>previous_response_id</c> points at an unfinishable turn.
+    /// </summary>
+    public bool IsDanglingToolCall =>
+        StatusCode == 400 &&
+        Body.Contains("No tool output found for function call", StringComparison.OrdinalIgnoreCase);
 }
