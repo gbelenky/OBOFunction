@@ -74,15 +74,34 @@ app.MapPost("/api/agent/chat", [Authorize] async (
     {
         var assertion = tokens.GetBearerToken(req);
 
-        if (body is null || string.IsNullOrWhiteSpace(body.Message))
+        body ??= new AgentChatRequest(string.Empty);
+        var isFirstTurn = string.IsNullOrWhiteSpace(body.PreviousResponseId);
+
+        // Treat the opening turn as a greeting when the agnostic client asks for one (greeting:true
+        // or an empty first-turn message) OR when a legacy client still sends the old prescriptive
+        // "show my profile as a bullet list" greet. In every case the PROXY owns the trigger and the
+        // AGENT owns the greeting text — the front-end carries no greeting/profile wording.
+        var isGreeting = isFirstTurn &&
+            (body.Greeting
+             || string.IsNullOrWhiteSpace(body.Message)
+             || LooksLikeLegacyGreet(body.Message));
+
+        if (!isGreeting && string.IsNullOrWhiteSpace(body.Message))
             return Problem("A non-empty 'message' is required.", "Invalid request", StatusCodes.Status400BadRequest);
 
         // Option A — inject the signed-in user's slim profile as conversation context on the FIRST
         // turn only (follow-ups inherit it via previous_response_id). The proxy stays unaware of the
-        // agent's tools; it only prepends profile data the agent uses to greet the user by name and
+        // agent's tools; it only supplies profile data the agent uses to greet the user by name and
         // to drive country-filtered features (search_faq). Best-effort: empty profile is omitted.
         var outgoing = body;
-        if (string.IsNullOrWhiteSpace(body.PreviousResponseId))
+        if (isGreeting)
+        {
+            // Replace whatever the client sent with a neutral, format-free greeting trigger so the
+            // agent produces a one-sentence greeting by first name and NEVER dumps the profile.
+            outgoing = outgoing with { Message = GreetingTrigger() };
+        }
+
+        if (isFirstTurn)
         {
             var profile = await profileContext.GetProfileAsync(assertion, ct);
             if (profile.HasAny)
@@ -90,7 +109,7 @@ app.MapPost("/api/agent/chat", [Authorize] async (
                 // Deliver the profile as a SEPARATE developer-role context item (not mixed into the
                 // user's message) so the model treats it as background instructions and does NOT echo
                 // it back on a simple greeting. The user can still ask about their profile later.
-                outgoing = body with { SystemContext = BuildProfileContext(profile) };
+                outgoing = outgoing with { SystemContext = BuildProfileContext(profile) };
                 logger.LogInformation("Injected profile context into the first agent turn.");
             }
             else
@@ -118,6 +137,22 @@ app.Run();
 
 static IResult Problem(string detail, string title, int status) =>
     Results.Problem(detail: detail, title: title, statusCode: status);
+
+// Neutral, format-free opening-turn trigger. The PROXY sends this so the front-end never has to;
+// the AGENT owns the actual greeting wording (one short sentence, by first name, no profile dump).
+static string GreetingTrigger() =>
+    "The user just opened the chat. Greet them in one short, friendly sentence using their first " +
+    "name and invite them to ask a question. Do NOT list, summarize, or display any profile fields.";
+
+// Defensive back-compat: an older deployed SPFx build may still send a first-turn message that
+// explicitly asks the agent to "show my profile as a bullet list". Detect that so the proxy can
+// neutralize it into a clean greeting even before the front-end package is rebuilt.
+static bool LooksLikeLegacyGreet(string message)
+{
+    var m = message.ToLowerInvariant();
+    return m.Contains("greet me") &&
+           (m.Contains("profile") || m.Contains("bullet") || m.Contains("- label"));
+}
 
 // Builds the host-provided profile context block prepended to the first agent turn. The agent uses
 // it to greet the user by name and to drive country-filtered features (search_faq) without asking.

@@ -32,13 +32,26 @@ export class ProxyClient {
    * ChatReply with status 'consent_required' and a consentUrl; open it, then call again unchanged.
    */
   public async ask(message: string): Promise<ChatReply> {
+    return this.post({ message, previousResponseId: this.previousResponseId });
+  }
+
+  /**
+   * Requests the opening greeting WITHOUT prescribing any wording. The client stays agnostic:
+   * it only signals that the chat was opened (greeting:true). The proxy supplies the greeting
+   * trigger and the agent owns the greeting text (one short sentence, by first name, no profile dump).
+   */
+  public async greet(): Promise<ChatReply> {
+    return this.post({ message: '', greeting: true });
+  }
+
+  private async post(payload: object): Promise<ChatReply> {
     const client = await this.getClient();
     const res: HttpClientResponse = await client.post(
       `${PROXY_BASE}/api/agent/chat`,
       AadHttpClient.configurations.v1,
       {
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message, previousResponseId: this.previousResponseId })
+        body: JSON.stringify(payload)
       }
     );
     if (!res.ok) {

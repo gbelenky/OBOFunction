@@ -43,7 +43,10 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
 
   private greet = (): void => {
     this.setState({ asking: true, chatError: undefined, consentUrl: undefined });
-    this.proxy.ask('Greet me by my first name in one short, friendly sentence and invite me to ask a question. Do NOT list, summarize, or show any of my profile fields — just the greeting and the invitation.')
+    // Front-end is agnostic: it does NOT prescribe greeting wording or ask for any profile
+    // fields. It only signals "the chat was opened" via greet(); the proxy + agent own the
+    // greeting text (one short sentence, by first name, no profile dump).
+    this.proxy.greet()
       .then((data: ChatReply) => {
         if (data.status === 'consent_required' && data.consentUrl) {
           this.setState({ asking: false, consentUrl: data.consentUrl });
@@ -117,7 +120,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
           <div className={styles.transcript}>
             {chat.length === 0 ? (
               <p className={styles.hint}>
-                {asking ? 'Greeting you…' : 'Try: \u201cWho am I and what are my skills?\u201d'}
+                {asking ? 'Greeting you…' : 'Try: \u201cHow do I request vacation?\u201d'}
               </p>
             ) : (
               chat.map((t, i) => (
@@ -139,7 +142,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
             <input
               type="text"
               className={styles.input}
-              placeholder="Ask about your profile…"
+              placeholder="Ask your intranet…"
               value={input}
               disabled={asking}
               onChange={this.onInputChange}

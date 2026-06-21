@@ -11,12 +11,17 @@ namespace OBOFunction.Models;
 /// proxy puts the signed-in user's profile here so it is delivered to the agent as a
 /// separate developer-role input item rather than mixed into the user's message — this
 /// prevents the model from echoing the raw profile back on a simple greeting.
+/// <paramref name="Greeting"/> lets the (agnostic) client request the opening turn without
+/// prescribing any wording: it just signals "the chat was opened — greet me". The proxy
+/// owns the greeting trigger and the agent owns the greeting text, so the front-end carries
+/// no greeting/profile logic. When true, <paramref name="Message"/> may be empty.
 /// </summary>
 public sealed record AgentChatRequest(
     string Message,
     string? PreviousResponseId = null,
     object? UserProfile = null,
-    string? SystemContext = null);
+    string? SystemContext = null,
+    bool Greeting = false);
 
 /// <summary>
 /// Reply returned to the web part.
