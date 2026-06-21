@@ -37,12 +37,14 @@ SPFx web part (user JWT, aud api://<proxy-app>)
                                         (filter Location = profile country + Global; agent identity, no OBO)
 ```
 
-**Why "Option A"?** Foundry's OAuth identity passthrough cannot forward the calling user's Entra
-token to a tool through a custom *SPFx → proxy → agent* chain (hosted-agent tool discovery runs under
-the agent's managed identity, so a passthrough/MCP tool is dropped and no consent is surfaced). So the
-**proxy** resolves the profile itself via OBO and injects it as plain conversation context *before*
-invoking the agent. The agent never needs the user's token; it only sees the profile as background
-knowledge. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full rationale.
+**Why "Option A"?** Foundry's OAuth identity passthrough *is* possible in principle (it returns a
+per-user consent link in the agent response, which any client can surface), but it requires a
+**portal-configured passthrough connection** on the agent — our code-first, URL-bound `HostedMcpServerTool`
+can't express one, so no consent link is generated — and it adds a per-user interactive consent ceremony.
+Since the **proxy** already holds the user's OBO token, it simply resolves the profile itself and injects
+it as plain conversation context *before* invoking the agent — no consent ceremony, no connection to
+manage. The agent never needs the user's token; it only sees the profile as background knowledge. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) §4 for the full rationale and the Microsoft-docs references.
 
 **Why a proxy?** SPFx is a public, third-party SharePoint client and can't be a confidential token
 broker; the Foundry data plane sends no CORS headers to a `*.sharepoint.com` origin; and an agent key

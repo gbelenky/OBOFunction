@@ -55,6 +55,6 @@ stored or logged. The agent uses the profile (esp. country) to answer **country-
 ## Definition of done
 - [ ] `azd up` deploys cleanly; `azd down --purge --force` cleans up fully.
 - [ ] SPFx sample posts `{ greeting: true }` on load and `{ message, previousResponseId }` for chat; tenant approval documented.
-- [ ] Greeting returns a one-sentence name greeting (no profile dump); explicit "what is my profile?" returns the profile; a vacation question returns the country-filtered FAQ answer.
+- [x] Greeting returns a one-sentence name greeting (no profile dump); explicit "what is my profile?" returns the profile; a vacation question returns the country-filtered FAQ answer.
 - [ ] App Insights shows end-to-end trace: SPFx → proxy → Graph/SharePoint + Foundry agent → search_faq.
-- [ ] README + ARCHITECTURE + component READMEs reflect the single (Option A) architecture and the one app registration.
+- [x] README + ARCHITECTURE + component READMEs reflect the single (Option A) architecture and the one app registration.

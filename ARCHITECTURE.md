@@ -184,27 +184,48 @@ Interests…) are readable only through a **SharePoint-consented token**:
 ## 4. Why "Option A" (proxy injects the profile) instead of OAuth passthrough
 
 The natural-looking alternative is to let the agent fetch the profile itself via a tool, using Foundry's
-**OAuth identity passthrough** so the agent calls SharePoint/Graph as the user. That **does not work**
-through a custom *SPFx → proxy → agent* chain:
+**OAuth identity passthrough** so the agent calls SharePoint/Graph as the user.
 
-- A hosted agent discovers and runs its toolbox/MCP tools under the **agent's own managed identity** —
-  there is no user context at tool-discovery time, so a passthrough tool is silently dropped and **no
-  consent prompt is ever surfaced** to the SPFx user (the server-to-server proxy→agent call has no
-  interactive browser to complete the per-user consent).
-- This was proven with live telemetry, CORS probes, and both non-streamed and streamed agent-API calls.
-  OAuth identity passthrough **does** work in an **interactive first-party channel** (Foundry Playground,
-  and by extension Teams / M365 Copilot), where the user can sign in and consent in-browser — but not in
-  a custom web app.
+**How passthrough actually works (per the Microsoft docs).** It is *not* tied to the Playground or any
+"first-party" channel. On a user's first interaction, Agent Service **returns a consent link in the
+agent's response**; the client surfaces that link, the user signs in and consents once, Agent Service
+stores the per-user access/refresh tokens (scoped to user+agent), and subsequent tool calls run as that
+user. **Any** client — Playground, Teams/M365 Copilot, *or a custom web app/SPFx* — can surface the
+link, **provided**:
 
-**Option A** sidesteps the platform limitation: the proxy already holds the user's OBO token, so it
-resolves the profile itself (§1) and injects it as a `USER_PROFILE_JSON` developer-role context item
-before invoking the agent. The agent treats it as background knowledge — it never needs the user's
-token, and the user's identity never leaks into agent traces.
+1. the agent is invoked **with the user's identity** (a user/OBO token) — **service-principal /
+   app-only invocation is explicitly unsupported** for passthrough;
+2. the user has at least the **Foundry User** role on the project, in the **same tenant** (no
+   cross-tenant token exchange); and
+3. the tool is configured as a **passthrough connection** (a portal MCP/A2A connection referenced by
+   `project_connection_id`).
 
-> **Agent identity reference** — <https://learn.microsoft.com/azure/ai-foundry/agents/concepts/agent-identity>
-> describes attended (OBO) vs unattended (app-only) agent auth. Built-in / OpenAPI / passthrough tool
-> auth is limited to anonymous, API key, or the agent's own managed identity — none of which forward the
-> calling SPFx user's Entra token through this chain, which is precisely why Option A is used.
+**Why it still didn't work in *our* chain — the real reason.** Not the channel, and not SPFx/SharePoint.
+Our hosted agent is **code-first** and binds the MCP server **by URL** via `HostedMcpServerTool`, whose
+converter can only emit `server_url` (+ optional `authorization`) — it **cannot emit a
+`project_connection_id`**. With no passthrough *connection*, Agent Service never generated a consent
+link (requirement #3 unmet), and our proxy→agent OBO additionally hit an MCP-audience mismatch. In other
+words it was a **tool-authoring / connection-config limitation** of the URL-bound code agent, compounded
+by an OBO-audience issue — *not* a platform rule that "custom web apps can't do passthrough."
+
+A portal-configured passthrough connection on the agent (rather than a URL-bound code tool) could, in
+principle, surface the consent link through this same SPFx → proxy → agent chain, because the proxy
+already invokes the agent as the user (requirement #1) and the user has the project role (#2).
+
+**Why we chose Option A anyway.** Even where passthrough is achievable it adds a per-user, interactive
+consent ceremony and a portal-managed connection. For this profile use case the proxy *already* holds
+the user's OBO token, so it simply resolves the profile itself (§1) and injects it as a
+`USER_PROFILE_JSON` developer-role context item before invoking the agent. The agent treats it as
+background knowledge — it never needs the user's token, no consent ceremony is required, and the user's
+identity never leaks into agent traces.
+
+> **References** —
+> [Set up authentication for MCP tools](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/tools/model-context-protocol) ·
+> [Agent2Agent (A2A) authentication](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/tools/a2a) ·
+> [Agent identity](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/agent-identity).
+> The passthrough consent-link flow and its requirements (Foundry User role, same tenant, user-identity
+> invocation, connection-based config) come from the first two; agent-identity (attended OBO vs
+> unattended app-only) from the third.
 
 ---
 
