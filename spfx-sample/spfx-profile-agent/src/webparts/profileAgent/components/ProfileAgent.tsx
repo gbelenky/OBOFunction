@@ -43,7 +43,7 @@ export default class ProfileAgent extends React.Component<IProfileAgentProps, IP
 
   private greet = (): void => {
     this.setState({ asking: true, chatError: undefined, consentUrl: undefined });
-    this.proxy.ask('Greet me by my first name in one short, friendly sentence. Then show my profile as a formatted bullet list, one field per line as "- Label: value", using only the fields that have a value (name, first name, last name, email, job title, responsibilities, past projects, interests, country). End by inviting me to ask a question.')
+    this.proxy.ask('Greet me by my first name in one short, friendly sentence and invite me to ask a question. Do NOT list, summarize, or show any of my profile fields — just the greeting and the invitation.')
       .then((data: ChatReply) => {
         if (data.status === 'consent_required' && data.consentUrl) {
           this.setState({ asking: false, consentUrl: data.consentUrl });
