@@ -128,20 +128,21 @@ public sealed class AgentChatClient : IAgentChatClient
         if (!string.IsNullOrWhiteSpace(request.PreviousResponseId))
             payload["previous_response_id"] = request.PreviousResponseId;
 
+        var hadPrevious = !string.IsNullOrWhiteSpace(request.PreviousResponseId);
+
         string raw;
         try
         {
             raw = await PostAgentAsync(payload, aiPlaneUserToken, ct).ConfigureAwait(false);
         }
-        catch (AgentResponsesException ex) when (
-            !string.IsNullOrWhiteSpace(request.PreviousResponseId) && ex.IsDanglingToolCall)
+        catch (AgentResponsesException ex) when (hadPrevious && ex.IsDanglingToolCall)
         {
             // The conversation we were asked to continue (previous_response_id) contains a function
             // tool call that never received its output — typically leftover state from an earlier
             // agent version (e.g. a now-removed MCP/profile tool). Continuing it is impossible, so
             // recover gracefully by retrying as a FRESH conversation (drop previous_response_id).
             _logger.LogWarning(
-                "Continuation {PrevId} has a dangling tool call; retrying as a fresh conversation. Detail: {Detail}",
+                "Continuation {PrevId} has a dangling tool call (HTTP error); retrying fresh. Detail: {Detail}",
                 request.PreviousResponseId, ex.Body);
             payload.Remove("previous_response_id");
             raw = await PostAgentAsync(payload, aiPlaneUserToken, ct).ConfigureAwait(false);

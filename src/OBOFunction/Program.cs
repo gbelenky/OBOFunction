@@ -119,6 +119,26 @@ app.MapPost("/api/agent/chat", [Authorize] async (
         }
 
         var reply = await agent.ChatAsync(outgoing, assertion, ct);
+
+        // The agent endpoint sometimes returns HTTP 200 with a body of { "status":"failed", ... }
+        // when a CONTINUED turn points at a prior response whose tool call never got its output
+        // ("No tool output found for function call ..."). Continuing that conversation is impossible,
+        // so recover by restarting as a FRESH turn (drop previous_response_id) — re-resolving and
+        // re-injecting the profile context so the agent still greets/filters by country correctly.
+        if (!isFirstTurn && IsFailedDanglingToolCall(reply))
+        {
+            logger.LogWarning(
+                "Continuation {PrevId} returned a failed dangling tool call; restarting as a fresh turn.",
+                body.PreviousResponseId);
+
+            var fresh = body with { PreviousResponseId = null };
+            var profile = await profileContext.GetProfileAsync(assertion, ct);
+            if (profile.HasAny)
+                fresh = fresh with { SystemContext = BuildProfileContext(profile) };
+
+            reply = await agent.ChatAsync(fresh, assertion, ct);
+        }
+
         return Results.Ok(reply);
     }
     catch (UnauthorizedAccessException ex)
@@ -153,6 +173,15 @@ static bool LooksLikeLegacyGreet(string message)
     return m.Contains("greet me") &&
            (m.Contains("profile") || m.Contains("bullet") || m.Contains("- label"));
 }
+
+// True when a parsed reply represents a failed run caused by a dangling function tool call: a
+// continuation (previous_response_id) that points at a turn whose tool call never got its output.
+// The agent surfaces this as an HTTP-200 body with status:"failed" and an error message containing
+// "No tool output found for function call". Such a conversation can only be recovered by restarting.
+static bool IsFailedDanglingToolCall(OBOFunction.Models.AgentChatReply reply) =>
+    string.Equals(reply.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+    !string.IsNullOrEmpty(reply.Reply) &&
+    reply.Reply.Contains("No tool output found for function call", StringComparison.OrdinalIgnoreCase);
 
 // Builds the host-provided profile context block prepended to the first agent turn. The agent uses
 // it to greet the user by name and to drive country-filtered features (search_faq) without asking.
