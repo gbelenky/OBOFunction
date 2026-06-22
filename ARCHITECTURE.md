@@ -262,3 +262,86 @@ in the user's language. Single quotes in the country value are escaped to preven
 calls the hosted agent (via `agent_reference`), and the agent runs `search_faq` itself as part of the
 turn. So the full SPFx → proxy → agent → `search_faq` path works end-to-end with the country coming from
 the injected profile.
+
+---
+
+## 6. Observability (OpenTelemetry → Application Insights, GenAI semantic conventions)
+
+End-to-end tracing follows the **Foundry-native** pattern: **OpenTelemetry** with the
+[GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/), exported to
+**Azure Monitor / Application Insights**. There are two complementary halves:
+
+### 6.1 Proxy spans (client-side, code-instrumented)
+
+`src/OBOFunction` uses the **`Azure.Monitor.OpenTelemetry.AspNetCore`** distro (replacing the bare
+App Insights SDK). On every `POST /api/agent/chat` turn it emits one span from the
+`OBOFunction.AgentChat` `ActivitySource` (see `Observability/AgentTelemetry.cs`), tagged with
+GenAI-convention attributes:
+
+| Tag | Meaning |
+| --- | --- |
+| `gen_ai.operation.name` = `chat` | GenAI operation |
+| `gen_ai.system` = `azure.ai.foundry` | provider |
+| `gen_ai.agent.name` | target hosted agent (`SharePointProfileAgent`) |
+| `gen_ai.response.id` / `gen_ai.previous_response.id` | the **conversation cursor** — walk a multi-turn chat by chaining these |
+| `gen_ai.response.status` | `completed` / `failed` |
+| `enduser.id` | the caller's Entra **`oid`** (pseudonymous; **never** name/email/token) |
+| `chat.is_first_turn`, `chat.is_greeting`, `chat.profile_resolved`, `chat.recovered_dangling_tool_call` | funnel booleans |
+
+`AddHttpClientInstrumentation()` propagates **W3C `traceparent`** on the outbound call to the agent
+Responses endpoint, so the proxy span and the agent's server-side trace share a **trace id**.
+
+> **Privacy guardrail.** The proxy **never** logs or tags the user JWT, any access token, or raw
+> profile fields. Only the Entra `oid` and booleans are emitted.
+
+### 6.2 Agent traces (server-side, zero-code)
+
+The hosted agent gets **server-side GenAI traces for free** — no agent code change. They are enabled
+by connecting an Application Insights resource to the **Foundry project** (one-time):
+
+- **Foundry portal:** project **`prj-fdr-swc`** → **Observability / Tracing** (or **Agents → Traces → Connect**) → select the App Insights resource.
+- **Equivalent project connection** (already present on this project as category `AppInsights`, named `prj-fdr-swc-appinsights-HRAgent`).
+
+These capture the model call **and** the local `search_faq` tool span, with 90-day retention; traces
+appear ~2–5 min after execution.
+
+### 6.3 Two App Insights resources — how to correlate
+
+This solution currently writes to **two** App Insights resources:
+
+| Source | App Insights | Resource group |
+| --- | --- | --- |
+| Proxy (`app-proxy-…`) | `appi-z6vb2tjg2j4ye` | `rg-OBOFunction` |
+| Foundry agent (`prj-fdr-swc`) | `prj-fdr-swc-appinsights-HRAgent` | `rg-fdr` |
+
+Because the proxy propagates `traceparent`, both halves share an `operation_Id` (trace id) and can be
+joined with a **cross-resource** query. To get a **single pane**, optionally point the proxy at the
+project's App Insights by overriding `APPLICATIONINSIGHTS_CONNECTION_STRING` (azd env / app setting) to
+the `prj-fdr-swc-appinsights-HRAgent` connection string.
+
+**Walk one conversation by response id (proxy resource):**
+
+```kusto
+requests
+| where name == "agent.chat" or customDimensions["gen_ai.operation.name"] == "chat"
+| project timestamp, operation_Id,
+          responseId      = tostring(customDimensions["gen_ai.response.id"]),
+          prevResponseId  = tostring(customDimensions["gen_ai.previous_response.id"]),
+          status          = tostring(customDimensions["gen_ai.response.status"]),
+          firstTurn       = tostring(customDimensions["chat.is_first_turn"]),
+          user            = tostring(customDimensions["enduser.id"])
+| order by timestamp asc
+```
+
+**Join proxy + agent across the two resources (run from either workspace):**
+
+```kusto
+union requests, dependencies,
+      (app("prj-fdr-swc-appinsights-HRAgent").dependencies),
+      (app("prj-fdr-swc-appinsights-HRAgent").traces)
+| where operation_Id == "<operation_Id from the proxy span>"
+| order by timestamp asc
+```
+
+This satisfies the end-to-end trace goal: **SPFx → proxy → Graph/SharePoint + Foundry agent →
+`search_faq`** is visible as one correlated trace.

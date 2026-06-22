@@ -200,3 +200,20 @@ docs/architecture.excalidraw   The single architecture diagram
 - CORS limited to the configured SharePoint tenant origin.
 - HTTPS only, TLS 1.2+, FTPS disabled.
 - The user JWT and OBO access tokens are never logged or stored.
+
+## Observability
+
+Tracing uses **OpenTelemetry → Azure Monitor (Application Insights)** with the
+[GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) — the Foundry-native
+pattern. Details and KQL in [`ARCHITECTURE.md` §6](./ARCHITECTURE.md#6-observability-opentelemetry--application-insights-genai-semantic-conventions).
+
+- **Proxy** emits one GenAI span per `POST /api/agent/chat` turn (`OBOFunction.AgentChat` source), tagged
+  `gen_ai.response.id` / `gen_ai.previous_response.id` (the conversation cursor), `gen_ai.response.status`,
+  `gen_ai.agent.name`, and `enduser.id` (the caller's Entra `oid` — **never** name/email/token). It
+  propagates W3C `traceparent` to the agent.
+- **Hosted agent** gets server-side GenAI traces (model + `search_faq`) **with no code change**, once an
+  App Insights resource is connected to the Foundry project:
+  **portal → project → Observability / Tracing → Connect** (already connected on `prj-fdr-swc` as the
+  `AppInsights` project connection).
+- Both halves share a trace id, so the full **SPFx → proxy → Graph/SharePoint + agent → `search_faq`**
+  path is one correlated trace.

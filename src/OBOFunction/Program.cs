@@ -1,10 +1,13 @@
 using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Identity.Web;
 using OBOFunction.Auth;
 using OBOFunction.Models;
+using OBOFunction.Observability;
 using OBOFunction.Services;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,8 +29,16 @@ if (!string.IsNullOrWhiteSpace(kvUri))
     builder.Configuration.AddAzureKeyVault(new Uri(kvUri), new DefaultAzureCredential());
 }
 
-// Observability: Application Insights (connection string from config/env).
-builder.Services.AddApplicationInsightsTelemetry();
+// Observability: OpenTelemetry → Azure Monitor (Foundry-native, GenAI semantic conventions).
+// Exports to Application Insights via APPLICATIONINSIGHTS_CONNECTION_STRING. Point this at the SAME
+// App Insights resource the Foundry project is connected to (Agents → Traces → Connect) so the proxy
+// spans share ONE distributed trace with the hosted agent's server-side traces (incl. search_faq).
+builder.Services.AddOpenTelemetry()
+    .UseAzureMonitor()
+    .WithTracing(t => t
+        .AddSource(OBOFunction.Observability.AgentTelemetry.SourceName)
+        .AddHttpClientInstrumentation()
+        .AddAspNetCoreInstrumentation());
 
 // AuthN/Z: validate the inbound SPFx user JWT (issuer + audience = api://<client-id>).
 builder.Services
@@ -90,6 +101,12 @@ app.MapPost("/api/agent/chat", [Authorize] async (
         if (!isGreeting && string.IsNullOrWhiteSpace(body.Message))
             return Problem("A non-empty 'message' is required.", "Invalid request", StatusCodes.Status400BadRequest);
 
+        // One distributed span per chat turn (privacy-safe tags only — no token/PII). Correlates the
+        // proxy hop with the agent's server-side traces via the returned responseId.
+        using var span = AgentTelemetry.StartChatTurn(isFirstTurn, isGreeting, GetUserOid(req));
+        if (!string.IsNullOrWhiteSpace(body.PreviousResponseId))
+            span?.SetTag(AgentTelemetry.Attr.PreviousResponseId, body.PreviousResponseId);
+
         // Option A — inject the signed-in user's slim profile as conversation context on the FIRST
         // turn only (follow-ups inherit it via previous_response_id). The proxy stays unaware of the
         // agent's tools; it only supplies profile data the agent uses to greet the user by name and
@@ -105,6 +122,7 @@ app.MapPost("/api/agent/chat", [Authorize] async (
         if (isFirstTurn)
         {
             var profile = await profileContext.GetProfileAsync(assertion, ct);
+            span?.SetTag(AgentTelemetry.Attr.ProfileResolved, profile.HasAny);
             if (profile.HasAny)
             {
                 // Deliver the profile as a SEPARATE developer-role context item (not mixed into the
@@ -131,6 +149,7 @@ app.MapPost("/api/agent/chat", [Authorize] async (
             logger.LogWarning(
                 "Continuation {PrevId} returned a failed dangling tool call; restarting as a fresh turn.",
                 body.PreviousResponseId);
+            span?.SetTag(AgentTelemetry.Attr.RecoveredDangling, true);
 
             var fresh = body with { PreviousResponseId = null };
             var profile = await profileContext.GetProfileAsync(assertion, ct);
@@ -139,6 +158,10 @@ app.MapPost("/api/agent/chat", [Authorize] async (
 
             reply = await agent.ChatAsync(fresh, assertion, ct);
         }
+
+        // Tag the outcome so a whole conversation is discoverable by responseId / previous id.
+        span?.SetTag(AgentTelemetry.Attr.ResponseId, reply.ResponseId);
+        span?.SetTag(AgentTelemetry.Attr.ResponseStatus, reply.Status);
 
         return Results.Ok(reply);
     }
@@ -158,6 +181,13 @@ app.Run();
 
 static IResult Problem(string detail, string title, int status) =>
     Results.Problem(detail: detail, title: title, statusCode: status);
+
+// Extracts the caller's Entra object id (oid) from the validated JWT claims for telemetry
+// correlation. Returns null if absent. NEVER returns name/email/UPN — oid is a stable,
+// non-PII pseudonymous identifier suitable for a per-user funnel.
+static string? GetUserOid(HttpRequest req) =>
+    req.HttpContext.User?.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value
+    ?? req.HttpContext.User?.FindFirst("oid")?.Value;
 
 // Neutral, format-free opening-turn trigger. The PROXY sends this so the front-end never has to;
 // the AGENT owns the actual greeting wording (one short sentence, by first name, no profile dump).

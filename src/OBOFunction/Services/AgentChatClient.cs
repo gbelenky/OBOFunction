@@ -43,6 +43,7 @@ public sealed class AgentChatClient : IAgentChatClient
 
     private readonly Uri _agentResponsesUri;
     private readonly string _aiPlaneScope;
+    private readonly string _agentName;
     private readonly IConfidentialClientApplication _cca;
     private readonly ILogger<AgentChatClient> _logger;
 
@@ -53,14 +54,14 @@ public sealed class AgentChatClient : IAgentChatClient
         // The Foundry hosted-agent Responses endpoint. Prefer an explicit override; otherwise
         // derive {projectEndpoint}/agents/{agentName}/endpoint/protocols/openai/responses?api-version=v1.
         var agentResponsesUrl = config["Foundry:AgentResponsesUrl"];
+        _agentName = config["Foundry:AgentName"] ?? "SharePointProfileAgent";
         if (string.IsNullOrWhiteSpace(agentResponsesUrl))
         {
             var projectEndpoint = config["Foundry:ProjectEndpoint"]
                 ?? throw new InvalidOperationException(
                     "Foundry:AgentResponsesUrl or Foundry:ProjectEndpoint is required for the agent proxy.");
-            var agentName = config["Foundry:AgentName"] ?? "SharePointProfileAgent";
             agentResponsesUrl =
-                $"{projectEndpoint.TrimEnd('/')}/agents/{agentName}/endpoint/protocols/openai/responses?api-version=v1";
+                $"{projectEndpoint.TrimEnd('/')}/agents/{_agentName}/endpoint/protocols/openai/responses?api-version=v1";
         }
         _agentResponsesUri = new Uri(agentResponsesUrl);
 
@@ -88,6 +89,11 @@ public sealed class AgentChatClient : IAgentChatClient
     public async Task<AgentChatReply> ChatAsync(
         AgentChatRequest request, string? userAssertion = null, CancellationToken ct = default)
     {
+        // Tag the in-flight chat span (started by the endpoint) with the target agent name so the
+        // distributed trace names which Foundry agent handled the turn.
+        System.Diagnostics.Activity.Current?.SetTag(
+            OBOFunction.Observability.AgentTelemetry.Attr.AgentName, _agentName);
+
         if (string.IsNullOrWhiteSpace(userAssertion))
             throw new UnauthorizedAccessException("The agent proxy requires the signed-in user's token.");
 
