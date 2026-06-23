@@ -502,5 +502,12 @@ $RECYCLE.BIN/
 logs/
 tmp/
 
+# ---------- Downloaded App Service / Kudu diagnostic logs ----------
+# Pulled from Azure for debugging — may contain runtime/deployment details; never commit
+applog/
+applog.zip
+*_failure.log
+*_success.log
+
 # ---------- Agent dev checkpoints ----------
 .checkpoints/
