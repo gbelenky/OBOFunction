@@ -9,14 +9,14 @@ param environmentName string
 @description('Azure region for all resources.')
 param location string
 
-@description('Entra ID tenant for the Function App registration.')
+@description('Entra ID tenant for the proxy app registration.')
 param aadTenantId string
 
-@description('Function App registration (client) ID.')
+@description('Proxy app registration (client) ID.')
 param aadClientId string
 
 @secure()
-@description('Proxy API app-registration client secret. Optional: when empty, the secret is not seeded and OBO is disabled until set. Never stored in app settings directly.')
+@description('Proxy API app-registration client secret. Optional: when empty, OBO is disabled until set.')
 param aadClientSecret string = ''
 
 @description('SharePoint tenant hostname for CORS, e.g. contoso.sharepoint.com.')
@@ -24,9 +24,6 @@ param sharepointTenantHostname string
 
 @description('Foundry project endpoint URL.')
 param foundryProjectEndpoint string = ''
-
-@description('Principal ID of the user/SP running azd, for KV access during seeding.')
-param principalId string = ''
 
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = {
@@ -54,7 +51,6 @@ module resources 'modules/resources.bicep' = {
     aadClientSecret: aadClientSecret
     sharepointTenantHostname: sharepointTenantHostname
     foundryProjectEndpoint: foundryProjectEndpoint
-    principalId: principalId
   }
 }
 
@@ -63,7 +59,5 @@ output AZURE_TENANT_ID string = aadTenantId
 output AZURE_RESOURCE_GROUP string = rg.name
 output SERVICE_API_NAME string = resources.outputs.proxyAppName
 output SERVICE_API_HOSTNAME string = resources.outputs.proxyAppHostname
-output AZURE_KEY_VAULT_NAME string = resources.outputs.keyVaultName
-output AZURE_KEY_VAULT_ENDPOINT string = resources.outputs.keyVaultEndpoint
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = resources.outputs.appInsightsConnectionString
 output API_APP_RESOURCE_ID string = 'api://${aadClientId}'

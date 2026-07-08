@@ -1,7 +1,6 @@
 # =====================================================================
 # OBOFunction — .gitignore
-# .NET 8 isolated Azure Function + .NET 10 Foundry hosted agent
-# + Bicep/azd + SPFx sample
+# ASP.NET Core BFF proxy + Bicep/azd + SPFx sample
 # =====================================================================
 
 # =====================================================================
@@ -430,15 +429,6 @@ FodyWeavers.xsd
 # Project-specific overrides
 # =====================================================================
 
-# ---------- Azure Functions ----------
-# Local-only — contains dev secrets and storage emulator config
-src/OBOFunction/local.settings.json
-src/OBOFunction/local.settings.*.json
-!src/OBOFunction/local.settings.json.sample
-
-# Functions Core Tools artifacts
-.azurefunctions/
-
 # ---------- Azurite storage emulator ----------
 # Local emulator state — never commit
 __azurite_db_*.json
@@ -457,7 +447,6 @@ azurite-*.log
 # Compiled ARM JSON (azd compiles on the fly; keep .bicep as source of truth)
 infra/**/*.json
 !infra/main.parameters.json
-!infra/abbreviations.json
 
 # ---------- REST Client / local HTTP testing ----------
 .env
@@ -465,18 +454,21 @@ infra/**/*.json
 !.env.sample
 http/*.local.http
 
-# ---------- SPFx sample (spfx-sample/) ----------
-spfx-sample/node_modules/
-spfx-sample/lib/
-spfx-sample/dist/
-spfx-sample/temp/
-spfx-sample/release/
-spfx-sample/sharepoint/solution/*.sppkg
-spfx-sample/.heft/
-spfx-sample/coverage/
-spfx-sample/*.tgz
-spfx-sample/npm-debug.log*
-spfx-sample/yarn-error.log*
+# ---------- SPFx sample ----------
+# The actual sample project lives under spfx-sample/spfx-profile-agent/
+spfx-sample/**/node_modules/
+spfx-sample/**/lib/
+spfx-sample/**/lib-commonjs/
+spfx-sample/**/dist/
+spfx-sample/**/temp/
+spfx-sample/**/release/
+spfx-sample/**/sharepoint/
+spfx-sample/**/.heft/
+spfx-sample/**/coverage/
+spfx-sample/**/jest-output/
+spfx-sample/**/*.tgz
+spfx-sample/**/npm-debug.log*
+spfx-sample/**/yarn-error.log*
 
 # ---------- Node (anywhere) ----------
 npm-debug.log*
@@ -506,6 +498,8 @@ tmp/
 # Pulled from Azure for debugging — may contain runtime/deployment details; never commit
 applog/
 applog.zip
+app-logs/
+logs_extracted/
 *_failure.log
 *_success.log
 

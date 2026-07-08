@@ -8,22 +8,3 @@ services:
         project: ./src/OBOFunction
         host: appservice
         language: dotnet
-    sharepoint-agent:
-        project: ./src/SharePointAgent
-        host: azure.ai.agent
-        language: dotnet
-        config:
-            container:
-                resources:
-                    cpu: "0.5"
-                    memory: 1Gi
-            deployments:
-                - model:
-                    format: OpenAI
-                    name: gpt-4.1-mini
-                    version: "2025-04-14"
-                  name: gpt-4.1-mini
-                  sku:
-                    capacity: 30
-                    name: GlobalStandard
-            startupCommand: dotnet SharePointAgent.dll

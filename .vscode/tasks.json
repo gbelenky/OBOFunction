@@ -2,171 +2,36 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "func: host start",
-      "type": "shell",
-      "command": "func start",
-      "options": {
-        "cwd": "${workspaceFolder}/src/OBOFunction"
-      },
-      "dependsOn": "build",
-      "problemMatcher": "$func-dotnet-watch",
-      "isBackground": true
-    },
-    {
-      "label": "build",
-      "type": "shell",
-      "command": "dotnet build",
-      "options": {
-        "cwd": "${workspaceFolder}/src/OBOFunction"
-      },
-      "problemMatcher": "$msCompile"
-    },
-    {
-      "label": "clean (functions)",
-      "command": "dotnet",
-      "args": [
-        "clean",
-        "/property:GenerateFullPaths=true",
-        "/consoleloggerparameters:NoSummary"
-      ],
+      "label": "build proxy",
       "type": "process",
-      "problemMatcher": "$msCompile",
-      "options": {
-        "cwd": "${workspaceFolder}/src\\OBOFunction"
-      }
-    },
-    {
-      "label": "build (functions)",
       "command": "dotnet",
       "args": [
         "build",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],
-      "type": "process",
-      "dependsOn": "clean (functions)",
+      "options": {
+        "cwd": "${workspaceFolder}/src/OBOFunction"
+      },
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": "$msCompile",
-      "options": {
-        "cwd": "${workspaceFolder}/src\\OBOFunction"
-      }
+      "problemMatcher": "$msCompile"
     },
     {
-      "label": "clean release (functions)",
-      "command": "dotnet",
-      "args": [
-        "clean",
-        "--configuration",
-        "Release",
-        "/property:GenerateFullPaths=true",
-        "/consoleloggerparameters:NoSummary"
-      ],
+      "label": "run proxy",
       "type": "process",
-      "problemMatcher": "$msCompile",
-      "options": {
-        "cwd": "${workspaceFolder}/src\\OBOFunction"
-      }
-    },
-    {
-      "label": "publish (functions)",
-      "command": "dotnet",
-      "args": [
-        "publish",
-        "--configuration",
-        "Release",
-        "/property:GenerateFullPaths=true",
-        "/consoleloggerparameters:NoSummary"
-      ],
-      "type": "process",
-      "dependsOn": "clean release (functions)",
-      "problemMatcher": "$msCompile",
-      "options": {
-        "cwd": "${workspaceFolder}/src\\OBOFunction"
-      }
-    },
-    {
-      "type": "func",
-      "dependsOn": "build (functions)",
-      "options": {
-        "cwd": "${workspaceFolder}/src\\OBOFunction/bin/Debug/net8.0"
-      },
-      "command": "host start",
-      "args": [
-        "--dotnet-isolated-debug",
-        "--enable-json-output"
-      ],
-      "isBackground": true,
-      "problemMatcher": "$func-dotnet-watch"
-    },
-    {
-      "label": "build (agent)",
-      "command": "dotnet",
-      "args": [
-        "build",
-        "/property:GenerateFullPaths=true",
-        "/consoleloggerparameters:NoSummary"
-      ],
-      "type": "process",
-      "problemMatcher": "$msCompile",
-      "options": {
-        "cwd": "${workspaceFolder}/src/SharePointAgent"
-      }
-    },
-    {
-      "label": "run agent host (debug)",
-      "type": "shell",
       "command": "dotnet",
       "args": [
         "run",
         "--project",
-        "${workspaceFolder}/src/SharePointAgent/SharePointAgent.csproj"
+        "${workspaceFolder}/src/OBOFunction/OBOFunction.csproj"
       ],
       "options": {
-        "cwd": "${workspaceFolder}/src/SharePointAgent",
-        "env": {
-          "PORT": "8088",
-          "ASPNETCORE_ENVIRONMENT": "Development"
-        }
+        "cwd": "${workspaceFolder}/src/OBOFunction"
       },
-      "isBackground": true,
-      "problemMatcher": {
-        "owner": "custom",
-        "pattern": [
-          {
-            "regexp": ".",
-            "file": 1,
-            "location": 2,
-            "message": 3
-          }
-        ],
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": ".*Now listening on.*|.*Application started.*|.*",
-          "endsPattern": ".*Now listening on.*|.*Application started.*"
-        }
-      }
-    },
-    {
-      "label": "azd ai agent run (agent)",
-      "type": "shell",
-      "command": "azd ai agent run",
-      "options": {
-        "cwd": "${workspaceFolder}/src/SharePointAgent"
-      },
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "azd ai agent invoke (agent)",
-      "type": "shell",
-      "command": "azd ai agent invoke --local \"Who am I and what are my skills?\"",
-      "options": {
-        "cwd": "${workspaceFolder}/src/SharePointAgent"
-      },
-      "problemMatcher": []
+      "problemMatcher": "$msCompile"
     }
   ]
 }

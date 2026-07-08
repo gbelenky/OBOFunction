@@ -3,9 +3,8 @@
 # Requires: REST Client extension (humao.rest-client)
 #
 # The proxy exposes ONLY POST /api/agent/chat (plus /liveness, /readiness). It validates the
-# inbound user JWT (aud api://<proxy-app>), resolves the signed-in user's profile via OBO
-# (SharePoint UPS + Graph) on the first turn, injects it as context, and calls the Foundry
-# hosted agent as the user. The agent answers and runs its local search_faq tool.
+# inbound user JWT (aud api://<proxy-app>), performs OBO to the Foundry data plane, and calls
+# the configured hosted agent as the user. The agent owns profile resolution and downstream tools.
 #
 # Token strategy: shell out to `az account get-access-token`. Never commit a real token.
 #   az account get-access-token --resource api://<proxy-app-client-id> --query accessToken -o tsv | Set-Clipboard
@@ -13,30 +12,29 @@
 # Alternative: set an env var and use {{$processEnv OBO_TOKEN}} (launch `code .` from the same shell):
 #   $env:OBO_TOKEN = az account get-access-token --resource api://<proxy-app-client-id> --query accessToken -o tsv
 
-@functionUrl = http://localhost:7071
+@proxyUrl = http://localhost:7071
 
-# Paste a freshly minted token here when testing (Bearer prefix added below). DO NOT COMMIT IT.
+# Paste a freshly minted token here when testing. DO NOT COMMIT IT.
 @token = PASTE_PROXY_USER_TOKEN_HERE
+@authScheme = Bearer
 
 ### Liveness
-GET {{functionUrl}}/liveness
+GET {{proxyUrl}}/liveness
 
 ### Ask the agent — using the pasted @token above
-POST {{functionUrl}}/api/agent/chat
-Authorization: Bearer {{token}}
+POST {{proxyUrl}}/api/agent/chat
+Authorization: {{authScheme}} {{token}}
 Content-Type: application/json
 
 {
-  "message": "Who am I and what are my interests?",
-  "previousResponseId": null
+  "message": "Who am I and what are my interests?"
 }
 
 ### Ask the agent — using the OBO_TOKEN env var (launch `code .` from the same shell)
-POST {{functionUrl}}/api/agent/chat
-Authorization: Bearer {{$processEnv OBO_TOKEN}}
+POST {{proxyUrl}}/api/agent/chat
+Authorization: {{authScheme}} {{$processEnv OBO_TOKEN}}
 Content-Type: application/json
 
 {
-  "message": "List my profile.",
-  "previousResponseId": null
+  "message": "List my profile."
 }

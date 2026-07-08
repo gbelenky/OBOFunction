@@ -13,18 +13,12 @@ param aadClientId string
 param aadClientSecret string
 param sharepointTenantHostname string
 param foundryProjectEndpoint string
-param principalId string
 
 var planName = 'plan-${resourceToken}'
 var proxyAppName = 'app-proxy-${resourceToken}'
 var laName = 'log-${resourceToken}'
 var aiName = 'appi-${resourceToken}'
-var kvName = 'kv-${take(resourceToken, 20)}'
 var uamiName = 'id-${resourceToken}'
-
-// Role definition IDs
-var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6' // Key Vault Secrets User
-var kvSecretsOfficerRoleId = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7' // Key Vault Secrets Officer (for azd principal to seed)
 
 var hasClientSecret = !empty(aadClientSecret)
 
@@ -60,42 +54,6 @@ module ai 'br/public:avm/res/insights/component:0.4.2' = {
     workspaceResourceId: la.outputs.resourceId
     kind: 'web'
     applicationType: 'web'
-  }
-}
-
-// Key Vault — UAMI gets read; azd principal gets officer for seeding
-module kv 'br/public:avm/res/key-vault/vault:0.10.2' = {
-  name: 'kv-deploy'
-  params: {
-    name: kvName
-    location: location
-    tags: tags
-    sku: 'standard'
-    enableRbacAuthorization: true
-    enableSoftDelete: true
-    enablePurgeProtection: false
-    publicNetworkAccess: 'Enabled'
-    roleAssignments: concat(
-      [
-        {
-          principalId: uami.outputs.principalId
-          roleDefinitionIdOrName: kvSecretsUserRoleId
-          principalType: 'ServicePrincipal'
-        }
-      ],
-      empty(principalId) ? [] : [
-        {
-          principalId: principalId
-          roleDefinitionIdOrName: kvSecretsOfficerRoleId
-          principalType: 'User'
-        }
-      ])
-    secrets: hasClientSecret ? [
-      {
-        name: 'AzureAd--ClientSecret'
-        value: aadClientSecret
-      }
-    ] : []
   }
 }
 
@@ -146,24 +104,22 @@ module proxyApp 'br/public:avm/res/web/site:0.11.1' = {
         APPLICATIONINSIGHTS_CONNECTION_STRING: ai.outputs.connectionString
         APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${uami.outputs.clientId};Authorization=AAD'
 
-        'AzureAd__Instance': 'https://login.microsoftonline.com/'
-        'AzureAd__TenantId': aadTenantId
-        'AzureAd__ClientId': aadClientId
-        'AzureAd__Audience': 'api://${aadClientId}'
+        AzureAd__Instance: '${environment().authentication.loginEndpoint}/'
+        AzureAd__TenantId: aadTenantId
+        AzureAd__ClientId: aadClientId
+        AzureAd__Audience: 'api://${aadClientId}'
 
-        'SharePoint__RootSiteUrl': 'https://${sharepointTenantHostname}'
-        'SharePoint__TenantHostname': sharepointTenantHostname
+        SharePoint__TenantHostname: sharepointTenantHostname
 
-        'Foundry__ProjectEndpoint': foundryProjectEndpoint
-        'Foundry__AgentName': 'SharePointProfileAgent'
+        Foundry__ProjectEndpoint: foundryProjectEndpoint
+        Foundry__AgentName: 'HostedSecureMcpAgent'
+        Foundry__ApiVersion: 'v1'
         // The proxy calls ONLY the hosted agent (tool-agnostic). The agent owns its own tools.
-        'Foundry__AgentResponsesUrl': '${foundryProjectEndpoint}/agents/SharePointProfileAgent/endpoint/protocols/openai/responses?api-version=v1'
-
-        'KeyVault__Uri': kv.outputs.uri
-        'AZURE_CLIENT_ID': uami.outputs.clientId
+        Foundry__AgentResponsesUrl: '${foundryProjectEndpoint}/agents/HostedSecureMcpAgent/endpoint/protocols/openai/responses?api-version=v1'
+        AZURE_CLIENT_ID: uami.outputs.clientId
       },
       hasClientSecret ? {
-        'AzureAd__ClientSecret': '@Microsoft.KeyVault(VaultName=${kvName};SecretName=AzureAd--ClientSecret)'
+        AzureAd__ClientSecret: aadClientSecret
       } : {}
     )
   }
@@ -171,8 +127,6 @@ module proxyApp 'br/public:avm/res/web/site:0.11.1' = {
 
 output proxyAppName string = proxyApp.outputs.name
 output proxyAppHostname string = 'https://${proxyApp.outputs.defaultHostname}'
-output keyVaultName string = kv.outputs.name
-output keyVaultEndpoint string = kv.outputs.uri
 output appInsightsConnectionString string = ai.outputs.connectionString
 output userAssignedIdentityClientId string = uami.outputs.clientId
 output userAssignedIdentityPrincipalId string = uami.outputs.principalId

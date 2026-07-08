@@ -1,4 +1,3 @@
-using Azure.Identity;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,18 +13,11 @@ var builder = WebApplication.CreateBuilder(args);
 // OBOFunction — agent-chat proxy (OBO), hosted on App Service.
 //
 // The proxy validates the SPFx caller's JWT, extracts the user assertion, and calls the
-// Foundry hosted agent AS THAT USER using OnBehalfOfCredential (OBO identity pass-through).
-// The agent owns all profile resolution via its Toolbox connection (SharePointProfile).
+// configured Foundry hosted agent AS THAT USER using OnBehalfOfCredential (OBO identity pass-through).
+// The agent owns all profile resolution and tool execution behind its own Foundry configuration.
 //   POST /api/agent/chat  -> validated user JWT -> OBO to ai.azure.com -> hosted agent
-//                               (agent calls Toolbox for user's profile as needed)
+//                               (agent resolves profile / tools as needed)
 // ---------------------------------------------------------------------------
-
-// Key Vault as a configuration source (secrets referenced by name, MSI to read).
-var kvUri = builder.Configuration["KeyVault:Uri"];
-if (!string.IsNullOrWhiteSpace(kvUri))
-{
-    builder.Configuration.AddAzureKeyVault(new Uri(kvUri), new DefaultAzureCredential());
-}
 
 // Observability: OpenTelemetry → Azure Monitor (Foundry-native, GenAI semantic conventions).
 // Exports to Application Insights via APPLICATIONINSIGHTS_CONNECTION_STRING.
@@ -35,9 +27,7 @@ builder.Services.AddOpenTelemetry().WithTracing(t =>
 
 // AuthN/Z: validate the inbound SPFx user JWT (issuer + audience = api://<client-id>).
 builder.Services
-    .AddMicrosoftIdentityWebApiAuthentication(builder.Configuration, "AzureAd")
-    .EnableTokenAcquisitionToCallDownstreamApi()
-    .AddInMemoryTokenCaches();
+    .AddMicrosoftIdentityWebApiAuthentication(builder.Configuration, "AzureAd");
 builder.Services.AddAuthorization();
 
 // CORS: allow only the customer's SharePoint Online origin.
@@ -86,15 +76,20 @@ app.MapPost("/api/agent/chat", [Authorize] async (
 
         // One distributed span per chat turn (privacy-safe tags only — no token/PII).
         // Correlates the proxy hop with the agent's server-side traces via the returned responseId.
-        using var span = AgentTelemetry.StartChatTurn(isFirstTurn, false, GetUserOid(req));
+        using var span = AgentTelemetry.StartChatTurn(isFirstTurn, body.Greeting, GetUserOid(req));
         if (!string.IsNullOrWhiteSpace(body.PreviousResponseId))
             span?.SetTag(AgentTelemetry.Attr.PreviousResponseId, body.PreviousResponseId);
 
-        // Call the agent as the user (OBO). The agent owns:
-        // - Profile resolution (Toolbox connection with per-user OAuth tokens)
-        // - Multi-turn conversation state (ProjectConversation)
-        // - Tool execution (local search_faq and Toolbox-based profile fetch)
+        // Call the agent as the user (OBO). The agent owns its own profile resolution,
+        // multi-turn state, and any downstream tools/connections.
         var reply = await agent.ChatAsync(body, assertion, ct);
+
+        if (IsFailedDanglingToolCall(reply, body.PreviousResponseId))
+        {
+            logger.LogWarning("Agent returned a failed continuation due to a dangling tool call; retrying without previousResponseId.");
+            span?.SetTag(AgentTelemetry.Attr.RecoveredDangling, true);
+            reply = await agent.ChatAsync(body with { PreviousResponseId = null }, assertion, ct);
+        }
 
         // Tag the outcome so a whole conversation is discoverable by responseId.
         span?.SetTag(AgentTelemetry.Attr.ResponseId, reply.ResponseId);
@@ -129,9 +124,10 @@ static string? ResolveSharePointOrigin(IConfiguration config)
     if (!string.IsNullOrWhiteSpace(host))
         return $"https://{host.Trim().TrimEnd('/')}";
 
-    var root = config["SharePoint:RootSiteUrl"];
-    if (!string.IsNullOrWhiteSpace(root) && Uri.TryCreate(root, UriKind.Absolute, out var uri))
-        return uri.GetLeftPart(UriPartial.Authority);
-
     return null;
 }
+
+static bool IsFailedDanglingToolCall(AgentChatReply reply, string? previousResponseId) =>
+    !string.IsNullOrWhiteSpace(previousResponseId) &&
+    string.Equals(reply.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+    reply.Reply.Contains("No tool output found for function call", StringComparison.OrdinalIgnoreCase);

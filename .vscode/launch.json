@@ -2,28 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Attach to .NET Functions",
-      "type": "coreclr",
-      "request": "attach",
-      "processId": "${command:azureFunctions.pickProcess}"
-    },
-    {
-      "name": "Debug SharePointAgent (host)",
+      "name": "Debug OBOFunction proxy",
       "type": "coreclr",
       "request": "launch",
-      "preLaunchTask": "build (agent)",
-      "program": "${workspaceFolder}/src/SharePointAgent/bin/Debug/net10.0/SharePointAgent.dll",
-      "cwd": "${workspaceFolder}/src/SharePointAgent",
+      "preLaunchTask": "build proxy",
+      "program": "${workspaceFolder}/src/OBOFunction/bin/Debug/net8.0/OBOFunction.dll",
+      "cwd": "${workspaceFolder}/src/OBOFunction",
       "console": "integratedTerminal",
       "stopAtEntry": false,
-      "launchSettingsFilePath": "${workspaceFolder}/src/SharePointAgent/Properties/launchSettings.json",
-      "launchSettingsProfile": "SharePointAgent (host)"
-    },
-    {
-      "name": "Attach to SharePointAgent",
-      "type": "coreclr",
-      "request": "attach",
-      "processId": "${command:pickProcess}"
+      "launchSettingsFilePath": "${workspaceFolder}/src/OBOFunction/Properties/launchSettings.json",
+      "launchSettingsProfile": "OBOFunction"
     }
   ]
 }

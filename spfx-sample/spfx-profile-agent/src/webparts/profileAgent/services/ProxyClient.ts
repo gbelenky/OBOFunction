@@ -1,9 +1,9 @@
 import { AadHttpClient, AadHttpClientFactory, HttpClientResponse } from '@microsoft/sp-http';
 
 // The proxy API app registration (api://<proxy-app-client-id>) and its public base URL.
-// The browser talks ONLY to the proxy. The proxy authenticates the user, resolves their
-// SharePoint/Graph profile via OBO, injects it as context, and calls the Foundry hosted agent
-// on the user's behalf — the front-end stays agnostic of profile and tool logic.
+// The browser talks ONLY to the proxy. The proxy authenticates the user, performs OBO to Foundry,
+// and calls the configured hosted agent on the user's behalf — the front-end stays agnostic of
+// profile resolution and downstream tool logic.
 export const PROXY_RESOURCE = 'api://7ce28b8f-cb0e-4a07-8cfb-dfe8f36d644a';
 export const PROXY_BASE = 'https://app-proxy-z6vb2tjg2j4ye.azurewebsites.net';
 

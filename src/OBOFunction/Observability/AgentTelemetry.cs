@@ -8,7 +8,7 @@ namespace OBOFunction.Observability;
 /// <para>
 /// Spans emitted here are exported to Application Insights via Azure Monitor and stitch the proxy
 /// (SPFx → proxy → OBO) onto the SAME distributed trace as the Foundry hosted-agent server-side
-/// traces — so a single trace covers SPFx → proxy → agent → search_faq.
+/// traces — so a single trace covers SPFx → proxy → external Foundry agent and its downstream tools.
 /// </para>
 /// <para>
 /// PRIVACY: only non-sensitive correlation values are tagged — never the user JWT, any access
@@ -37,7 +37,6 @@ public static class AgentTelemetry
         public const string UserOid = "enduser.id";                    // Entra oid — NOT name/email
         public const string IsFirstTurn = "chat.is_first_turn";
         public const string IsGreeting = "chat.is_greeting";
-        public const string ProfileResolved = "chat.profile_resolved"; // bool, no PII
         public const string RecoveredDangling = "chat.recovered_dangling_tool_call";
     }
 

@@ -8,7 +8,6 @@
     "aadClientId": { "value": "${AAD_CLIENT_ID}" },
     "aadClientSecret": { "value": "${AAD_CLIENT_SECRET}" },
     "sharepointTenantHostname": { "value": "${SHAREPOINT_TENANT_HOSTNAME}" },
-    "foundryProjectEndpoint": { "value": "${FOUNDRY_PROJECT_ENDPOINT}" },
-    "principalId": { "value": "${AZURE_PRINCIPAL_ID}" }
+    "foundryProjectEndpoint": { "value": "${FOUNDRY_PROJECT_ENDPOINT}" }
   }
 }

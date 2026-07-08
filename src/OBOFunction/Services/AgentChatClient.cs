@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using OBOFunction.Models;
 using System.Net.Http.Headers;
+using System.Text.Json.Nodes;
 using System.Text.Json;
 
 namespace OBOFunction.Services;
@@ -25,6 +26,8 @@ public sealed class AgentChatClient : IAgentChatClient
 {
     private readonly Uri _projectEndpoint;
     private readonly string _agentName;
+    private readonly string? _agentResponsesUrl;
+    private readonly string _apiVersion;
     private readonly string _tenantId;
     private readonly string _clientId;
     private readonly string _clientSecret;
@@ -42,6 +45,9 @@ public sealed class AgentChatClient : IAgentChatClient
 
         _agentName = config["Foundry:AgentName"]
             ?? throw new InvalidOperationException("Foundry:AgentName is required (the hosted agent name/id).");
+
+        _agentResponsesUrl = config["Foundry:AgentResponsesUrl"];
+        _apiVersion = config["Foundry:ApiVersion"] ?? "v1";
 
         _tenantId = config["AzureAd:TenantId"]
             ?? throw new InvalidOperationException("AzureAd:TenantId is required.");
@@ -84,50 +90,15 @@ public sealed class AgentChatClient : IAgentChatClient
 
             _logger.LogInformation("OBO token acquired for user; calling agent endpoint.");
 
-            // POST to the Foundry agent endpoint.
-            // Format: POST https://<resource>.services.ai.azure.com/api/projects/<projectName>/responses/<agentName>
-            var responseUrl = $"{_projectEndpoint}/responses/{_agentName}";
+            var parsedReply = await SendAsync(request, accessToken.Token, allowFreshRetry: true, ct).ConfigureAwait(false);
 
-            var requestBody = new
-            {
-                message = request.Message ?? string.Empty,
-                previous_response_id = request.PreviousResponseId
-            };
-
-            var json = JsonSerializer.Serialize(requestBody);
-            _logger.LogInformation("Calling agent endpoint: {Url} with body: {Body}",
-                responseUrl, json);
-            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-
-            var httpRequest = new HttpRequestMessage(HttpMethod.Post, responseUrl)
-            {
-                Content = content
-            };
-            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Token);
-
-            var response = await _httpClient.SendAsync(httpRequest, ct).ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                _logger.LogError("Agent call failed: {StatusCode} {ReasonPhrase}. Endpoint: {Endpoint}. Response body: {Body}", 
-                    response.StatusCode, response.ReasonPhrase, responseUrl, errorBody);
-                throw new AgentResponsesException(
-                    $"Agent call failed with status {response.StatusCode}.",
-                    (int)response.StatusCode,
-                    errorBody);
-            }
-
-            var responseText = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            var result = JsonSerializer.Deserialize<ResponseBody>(responseText);
-
-            _logger.LogInformation("Agent response received: {Length} chars, response_id={ResponseId}.", 
-                result?.output?.Length ?? 0, result?.response_id);
+            _logger.LogInformation("Agent response received: {Length} chars, response_id={ResponseId}, status={Status}.",
+                parsedReply.Reply.Length, parsedReply.ResponseId, parsedReply.Status);
 
             return new AgentChatReply(
-                Reply: result?.output ?? string.Empty,
-                ResponseId: result?.response_id ?? string.Empty,
-                Status: "success");
+                Reply: parsedReply.Reply,
+                ResponseId: parsedReply.ResponseId,
+                Status: string.Equals(parsedReply.Status, "failed", StringComparison.OrdinalIgnoreCase) ? "failed" : "success");
         }
         catch (Azure.Identity.AuthenticationFailedException ex)
         {
@@ -145,7 +116,82 @@ public sealed class AgentChatClient : IAgentChatClient
         }
     }
 
-    private record ResponseBody(string? output, string? response_id);
+    private async Task<AgentChatReply> SendAsync(
+        AgentChatRequest request,
+        string bearerToken,
+        bool allowFreshRetry,
+        CancellationToken ct)
+    {
+        var responseUrl = ResolveAgentResponsesUrl();
+        var requestBody = new JsonObject
+        {
+            ["input"] = BuildInput(request)
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.PreviousResponseId))
+        {
+            requestBody["previous_response_id"] = request.PreviousResponseId;
+        }
+
+        var json = JsonSerializer.Serialize(requestBody);
+        _logger.LogInformation("Calling agent endpoint: {Url} with body: {Body}", responseUrl, json);
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, responseUrl)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _httpClient.SendAsync(httpRequest, ct).ConfigureAwait(false);
+        var responseText = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("Agent call failed: {StatusCode} {ReasonPhrase}. Endpoint: {Endpoint}. Response body: {Body}",
+                response.StatusCode, response.ReasonPhrase, responseUrl, responseText);
+
+            var failure = new AgentResponsesException((int)response.StatusCode, responseText);
+            if (allowFreshRetry &&
+                !string.IsNullOrWhiteSpace(request.PreviousResponseId) &&
+                failure.IsDanglingToolCall)
+            {
+                _logger.LogWarning("Retrying agent call without previousResponseId after dangling tool-call error.");
+                return await SendAsync(request with { PreviousResponseId = null }, bearerToken, allowFreshRetry: false, ct).ConfigureAwait(false);
+            }
+
+            throw failure;
+        }
+
+        var parsedReply = ResponsesPayloadParser.ParseReply(responseText);
+        if (allowFreshRetry &&
+            !string.IsNullOrWhiteSpace(request.PreviousResponseId) &&
+            IsFailedDanglingToolCall(parsedReply))
+        {
+            _logger.LogWarning("Retrying agent call without previousResponseId after failed continuation response.");
+            return await SendAsync(request with { PreviousResponseId = null }, bearerToken, allowFreshRetry: false, ct).ConfigureAwait(false);
+        }
+
+        return parsedReply;
+    }
+
+    private string ResolveAgentResponsesUrl()
+    {
+        if (!string.IsNullOrWhiteSpace(_agentResponsesUrl))
+            return _agentResponsesUrl;
+
+        var baseUrl = $"{_projectEndpoint.ToString().TrimEnd('/')}/agents/{Uri.EscapeDataString(_agentName)}/endpoint/protocols/openai/responses";
+        return $"{baseUrl}?api-version={Uri.EscapeDataString(_apiVersion)}";
+    }
+
+    private static string BuildInput(AgentChatRequest request) =>
+        request.Greeting
+            ? "The chat was just opened. Greet the signed-in user in one short sentence by first name and offer help. Do not dump their profile."
+            : request.Message ?? string.Empty;
+
+    private static bool IsFailedDanglingToolCall(AgentChatReply reply) =>
+        string.Equals(reply.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+        reply.Reply.Contains("No tool output found for function call", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -153,6 +199,11 @@ public sealed class AgentChatClient : IAgentChatClient
 /// </summary>
 public sealed class AgentResponsesException : Exception
 {
+    public AgentResponsesException(int statusCode, string body)
+        : this($"Agent call failed with status {statusCode}.", statusCode, body)
+    {
+    }
+
     public AgentResponsesException(string message, int statusCode, string body)
         : base(message)
     {

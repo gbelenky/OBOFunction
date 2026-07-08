@@ -1,60 +1,79 @@
-# Project: OBOFunction — SharePoint profile for a Foundry agent, user identity end-to-end (OBO)
+# Project: OBOFunction
 
-Design contract for AI coding agents. Keep changes consistent with the **single architecture** below.
-For setup/run see [`../README.md`](../README.md); for identity rationale see [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+## Current architecture
 
-## Goal
-Surface the **signed-in SharePoint user's** Microsoft Graph + SharePoint (UPS, incl. custom attributes
-such as `IntranetCountry`) profile to a **Microsoft Foundry hosted agent**, with the user's identity
-flowing via the **OAuth 2.0 On-Behalf-Of (OBO)** flow. SPFx is the auth boundary; no user token is
-stored or logged. The agent uses the profile (esp. country) to answer **country-filtered FAQ** queries.
+This repo is the **BFF proxy** for a SharePoint SPFx client.
 
-## The two components (single architecture — "Option A")
-1. **Proxy** — `src/OBOFunction`, **App Service, .NET 8 ASP.NET Core** (minimal API; *not* Functions isolated worker). The only confidential client; performs **all** OBO.
-   - `POST /api/agent/chat` — validate SPFx JWT; on the FIRST turn resolve the user's profile via OBO (SharePoint UPS `GetMyProperties` + Graph `/me`), inject it as a `USER_PROFILE_JSON` developer-role context item, then OBO to `https://ai.azure.com/.default` and call the hosted **agent** (via `agent_reference`) as the user. Body `{ message?, greeting?, previousResponseId? }` → `{ reply, responseId, status }`.
-   - Health: `/liveness`, `/readiness`.
-2. **Hosted agent** — `src/SharePointAgent`, **Foundry hosted agent, .NET 10** (Microsoft Agent Framework). Owns one **local in-process tool** `search_faq` (Azure AI Search, agent identity). No profile tool — the profile arrives as host-injected context.
+```text
+SPFx -> src/OBOFunction -> HostedSecureMcpAgent (Foundry, external to this repo)
+```
 
-## Identity flow
-- **Single path:** proxy validates the SPFx user JWT (aud `api://<proxy-app>`). On the first turn it does three OBO exchanges from the same user assertion: user→SharePoint (UPS profile), user→Graph (`/me`), user→`https://ai.azure.com/.default` (to call the agent). The profile is injected as a developer-role item; the agent is invoked **as the user** via `agent_reference` (no `model` param).
-- Follow-up turns inherit context via `previousResponseId`; the profile is resolved/injected only on the first turn.
-- `search_faq` runs under the **agent's own identity** (query key locally / Managed Identity + `Search Index Data Reader` in prod) — it only needs the country string, never a user token.
+## Source of truth
 
-## Exactly one app registration
-1. **Proxy API** `api://<proxy-app>`, scope `access_as_user`. Delegated Microsoft Graph (`User.Read`, `openid`, `profile`, `offline_access`) + Office 365 SharePoint Online (`AllSites.Read`, `User.Read.All`) + Azure Machine Learning Services `user_impersonation` (for the OBO to `ai.azure.com`). Pre-authorize SharePoint Online Client Extensibility `08e18876-6177-487e-b8b5-cf950c1e598c` (+ Azure CLI `04b07795-...` for local). Secret in KV (`AzureAd--ClientSecret`).
+- Setup and repo scope: `../README.md`
+- Architecture and BFF justification: `../ARCHITECTURE.md`
 
-> No second app registration, no MCP server, no Foundry toolbox/OAuth-passthrough connection, no `/api/ask`, no embedded/passthrough agent profile tool. Any leftover Foundry toolbox/connections or the old `app-mcp-*` web app are orphans.
+## What this repo contains
 
-## Stack
-- **Proxy:** `Microsoft.Identity.Web` + `Microsoft.Identity.Client` (OBO); `Microsoft.Graph` v5+ and SharePoint REST for the profile; `Azure.AI.Projects` to call the agent. App Insights + OpenTelemetry; Key Vault references via managed identity (no secrets in app settings). CORS allow-list limited to `https://<tenant>.sharepoint.com`.
-- **Agent:** `Microsoft.Agents.AI.Foundry.Hosting` (`AddFoundryResponses`/`MapFoundryResponses`), `Azure.AI.Projects`, `Azure.Search.Documents`. No `ModelContextProtocol` dependency.
+1. **Proxy** — `src/OBOFunction`
+   - ASP.NET Core (.NET 8)
+   - validates the inbound SPFx JWT
+   - extracts the user bearer token
+   - performs OBO to `https://ai.azure.com/.default`
+   - calls the configured Foundry hosted agent
+   - exposes:
+     - `POST /api/agent/chat`
+     - `GET /liveness`
+     - `GET /readiness`
 
-## azd / infra
-- `azure.yaml` services: `api` (`host: appservice`), `sharepoint-agent` (`host: azure.ai.agent`, runtime `dotnet_10`).
-- `infra/` = `main.bicep` (`targetScope='subscription'`) + `modules/resources.bicep`, composing **Azure Verified Modules** (`br/public:avm/res/...`) for one web app (proxy) on a plan, Storage, Key Vault, App Insights, Log Analytics, UAMI. No `infra/hooks`.
-- Tags on every resource: `azd-env-name`, `purpose=demo`, `owner=gbelenky`, `project=obo-function`.
-- `azd up` end-to-end; `azd down --purge --force` cleans up (incl. KV soft-delete); `azd pipeline config` = federated creds.
+2. **SPFx sample** — `spfx-sample/spfx-profile-agent`
+   - reference web part using `AadHttpClient`
+   - talks only to the proxy
 
-## Config keys
-- **Proxy:** `AzureAd:{TenantId,ClientId,Audience,ClientSecret}`, `SharePoint:{RootSiteUrl,TenantHostname}` (UPS OBO + CORS), `Foundry:{ProjectEndpoint,AgentName,AgentResponsesUrl?,TokenScope}`, `KeyVault:Uri`.
-- **Agent:** `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME`, `AZURE_SEARCH_{ENDPOINT,INDEX_NAME,COUNTRY_FIELD,API_KEY?,INCLUDE_GLOBAL?}`.
+## What this repo does not contain
 
-## Code quality
-- Constructor DI; no service locators. RFC 7807 `ProblemDetails` on errors. No `TODO` placeholders.
-- Never log the user JWT or any access token. Validate `aud` + `iss` strictly. HTTPS only, TLS 1.2+, FTPS disabled.
-- Keep the endpoint-level failed-dangling-tool-call recovery (`IsFailedDanglingToolCall` in `Program.cs`) and the client-side non-2xx retry in `AgentChatClient` — both guard multi-turn continuations.
-- `search_faq` MUST stay a LOCAL tool in `src/SharePointAgent` (agent identity). The proxy MUST stay tool-agnostic — never enumerate/whitelist agent tools.
+- no local hosted-agent service
+- no local MCP/toolbox/tool implementation for the hosted agent
+- no profile-fetching service in the proxy
+- no Azure Functions runtime model
 
-## Avoid
-- Functions isolated/in-process model (this is App Service ASP.NET Core now).
-- Reintroducing an MCP server, Foundry toolbox, OAuth identity-passthrough connection, or a second app registration.
-- Passing the user token *through* the agent; an embedded/passthrough agent profile tool; Foundry OpenAPI tool for profile data.
-- ADAL (MSAL only); storing user tokens; calling Graph as the app (defeats OBO).
-- Reintroducing "Shape 1/2", "Toolbox", `/api/ask`, or `get_sharepoint_profile`.
+## Current Foundry target
 
-## Definition of done
-- [ ] `azd up` deploys cleanly; `azd down --purge --force` cleans up fully.
-- [ ] SPFx sample posts `{ greeting: true }` on load and `{ message, previousResponseId }` for chat; tenant approval documented.
-- [x] Greeting returns a one-sentence name greeting (no profile dump); explicit "what is my profile?" returns the profile; a vacation question returns the country-filtered FAQ answer.
-- [ ] App Insights shows end-to-end trace: SPFx → proxy → Graph/SharePoint + Foundry agent → search_faq.
-- [x] README + ARCHITECTURE + component READMEs reflect the single (Option A) architecture and the one app registration.
+The proxy must target:
+
+- `HostedSecureMcpAgent`
+
+Current config shape:
+
+- `Foundry:ProjectEndpoint`
+- `Foundry:AgentName`
+- `Foundry:AgentResponsesUrl`
+- `Foundry:ApiVersion`
+- `Foundry:TokenScope`
+
+## BFF rule
+
+Do not redesign this into browser -> Foundry direct calls.
+
+The proxy is required because:
+
+1. SPFx is a public client and cannot safely hold the OBO secret.
+2. The proxy is the JWT-validation and CORS boundary.
+3. The proxy owns Foundry endpoint/agent routing and retry behavior.
+4. The browser must remain agnostic of hosted-agent internals.
+
+## Implementation rules
+
+- Keep the proxy tool-agnostic: it calls the hosted agent only.
+- Do not reintroduce local hosted-agent code into this repo unless explicitly requested.
+- Do not reintroduce Key Vault runtime dependency for the proxy secret unless explicitly requested.
+- Do not add browser-direct Foundry calls.
+- Keep first-turn requests free of `previous_response_id` when there is no prior response id.
+- Never log user JWTs, OBO tokens, or raw secrets.
+
+## Definition of done for changes
+
+- Build succeeds
+- Tests succeed
+- Docs match the current live setup
+- `azure.yaml` and infra match the actual deployed architecture
