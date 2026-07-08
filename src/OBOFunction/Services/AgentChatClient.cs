@@ -95,6 +95,8 @@ public sealed class AgentChatClient : IAgentChatClient
             };
 
             var json = JsonSerializer.Serialize(requestBody);
+            _logger.LogInformation("Calling agent endpoint: {Url} with body: {Body}",
+                responseUrl, json);
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, responseUrl)
@@ -108,8 +110,8 @@ public sealed class AgentChatClient : IAgentChatClient
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                _logger.LogError("Agent call failed: {StatusCode}. Body: {Body}", 
-                    response.StatusCode, errorBody);
+                _logger.LogError("Agent call failed: {StatusCode} {ReasonPhrase}. Endpoint: {Endpoint}. Response body: {Body}", 
+                    response.StatusCode, response.ReasonPhrase, responseUrl, errorBody);
                 throw new AgentResponsesException(
                     $"Agent call failed with status {response.StatusCode}.",
                     (int)response.StatusCode,

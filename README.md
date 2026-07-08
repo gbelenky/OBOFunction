@@ -16,8 +16,8 @@ The agent greets the user by first name and answers FAQ questions filtered to th
 
 | Component | Path | Host | What it is |
 |---|---|---|---|
-| **Proxy** | `src/OBOFunction` | App Service (.NET 8, ASP.NET Core) | The single backend the browser talks to. Validates the SPFx user JWT, resolves the user's profile via OBO, injects it as context, and calls the Foundry hosted agent **as the user**. Endpoint: `POST /api/agent/chat`. |
-| **Hosted agent** | `src/SharePointAgent` | Foundry Hosted Agent (.NET 10, Microsoft Agent Framework) | Chat agent. Receives the profile as a host-injected `USER_PROFILE_JSON` context item, so it greets by first name. Owns one **local `search_faq` tool** (Azure AI Search, filtered by the profile's country — no OBO, agent identity). |
+| **Proxy** | `src/OBOFunction` | App Service (.NET 8, ASP.NET Core) | The single backend the browser talks to. Validates the SPFx user JWT, extracts the user's Bearer token, and calls the Foundry hosted agent **as the user** via OBO identity pass-through. Endpoint: `POST /api/agent/chat`. |
+| **Hosted agent** | `src/SharePointAgent` | Foundry Hosted Agent (.NET 10, Microsoft Agent Framework) | Chat agent. Receives the user's OBO token (identity pass-through), so it executes as the signed-in user. On first use, the agent's **Toolbox connection** fetches the user's profile (name, email, country). Owns one **local `search_faq` tool** (Azure AI Search, filtered by the profile's country — agent identity, no OBO). |
 
 ## Architecture (one flow, "Option A")
 
@@ -25,26 +25,31 @@ The agent greets the user by first name and answers FAQ questions filtered to th
 SPFx web part (user JWT, aud api://<proxy-app>)
   │
   └─ POST /api/agent/chat ──► Proxy
-                               │  FIRST turn only:
-                               ├─ OBO user → SharePoint UPS (GetMyProperties + custom IntranetCountry)
-                               ├─ OBO user → Graph /me
-                               │     → builds USER_PROFILE_JSON, injected as a developer-role item
+                               │
+                               ├─ Validates SPFx JWT (aud, iss, sig)
+                               ├─ Extracts user's Bearer token
+                               ├─ Creates OBO credential (proxy app + user token)
                                └─ OBO user → https://ai.azure.com/.default
                                      ▼
-                               Foundry Hosted Agent (SharePointProfileAgent), called AS THE USER
-                                     │  profile arrives as context; greets by first name
-                                     └─ local search_faq tool ──► Azure AI Search faq-index
-                                        (filter Location = profile country + Global; agent identity, no OBO)
+                               Foundry Hosted Agent (SharePointProfileAgent)
+                               Called AS THE USER (OBO token)
+                                     │
+                                     ├─ FIRST turn: Toolbox connection fetches user's profile
+                                     │  └─ (May show sign-in prompt for Toolbox consent)
+                                     │
+                                     └─ Calls search_faq tool ──► Azure AI Search faq-index
+                                        (filter Location = profile country + Global; agent identity)
 ```
 
-**Why "Option A"?** Foundry's OAuth identity passthrough *is* possible in principle (it returns a
-per-user consent link in the agent response, which any client can surface), but it requires a
-**portal-configured passthrough connection** on the agent — our code-first, URL-bound `HostedMcpServerTool`
-can't express one, so no consent link is generated — and it adds a per-user interactive consent ceremony.
-Since the **proxy** already holds the user's OBO token, it simply resolves the profile itself and injects
-it as plain conversation context *before* invoking the agent — no consent ceremony, no connection to
-manage. The agent never needs the user's token; it only sees the profile as background knowledge. See
-[`ARCHITECTURE.md`](./ARCHITECTURE.md) §4 for the full rationale and the Microsoft-docs references.
+**Why OBO pass-through?** The proxy no longer resolves the profile itself. Instead, it passes the
+user's identity to the agent via the OBO flow. The agent's **Toolbox connection** (Foundry-managed)
+fetches the user's profile on demand using standard OAuth flows. This design:
+- Simplifies the proxy (pure identity pass-through, no profile extraction)
+- Follows Foundry best practices (Toolbox for data, not embedded profile tools)
+- Supports user consent flows (Toolbox connection may prompt on first use)
+- Keeps `search_faq` under the agent's identity (least-privilege for FAQ access)
+
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for full rationale and [`REFACTOR_SUMMARY.md`](./REFACTOR_SUMMARY.md) for before/after comparison.
 
 **Why a proxy?** SPFx is a public, third-party SharePoint client and can't be a confidential token
 broker; the Foundry data plane sends no CORS headers to a `*.sharepoint.com` origin; and an agent key
@@ -55,7 +60,7 @@ all credentials off the client. See [`spfx-sample/README.md`](./spfx-sample/READ
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
-| `POST /api/agent/chat` | `Authorization: Bearer <user JWT>` (aud `api://<proxy-app>`) | Resolves the profile via OBO on the first turn, injects it as context, and calls the Foundry hosted agent as the user. Body `{ "message": "...", "previousResponseId": null, "greeting": false }` → `{ "reply", "responseId", "status" }`. |
+| `POST /api/agent/chat` | `Authorization: Bearer <user JWT>` (aud `api://<proxy-app>`) | Validates the user's JWT, extracts the Bearer token, creates an OBO credential, and calls the Foundry hosted agent as the user. The agent then uses its Toolbox connection to fetch the user's profile on demand. Body `{ "message": "...", "previousResponseId": null, "greeting": false }` → `{ "reply", "responseId", "status" }`. |
 | `GET /liveness`, `GET /readiness` | anonymous | Health probes. |
 
 ## App registration (exactly one)
@@ -64,18 +69,19 @@ Single-tenant. The client secret lives in Key Vault — never in app settings or
 
 ### Proxy API — `api://<proxy-app>`
 - **Expose an API** → scope `access_as_user` (admin + user consent).
-- **Delegated permissions** (the proxy does the OBO to Graph + SharePoint itself):
-  - Microsoft Graph: `User.Read`, `openid`, `profile`, `offline_access`.
-  - Office 365 SharePoint Online: `AllSites.Read`, `User.Read.All` (required for the SharePoint UPS).
+- **Delegated permissions** (proxy needs only to mint the inbound token and OBO to Foundry):
+  - Microsoft Graph: `User.Read`, `openid`, `profile`, `offline_access` (for user consent + token cache).
+  - Office 365 SharePoint Online: `AllSites.Read` (CORS/SPFx context only; profile now fetched by agent's Toolbox).
+  - Azure Machine Learning Services: `user_impersonation` (for OBO to Foundry's `https://ai.azure.com`).
   - Grant **admin consent**.
 - **Pre-authorized client applications** (for `access_as_user`): SharePoint Online Client Extensibility
   Web Application Principal `08e18876-6177-487e-b8b5-cf950c1e598c` (so SPFx can mint the inbound token);
   optionally Azure CLI `04b07795-8ddb-461a-bbee-02f9e1bf7b46` for local testing via `az`.
 - **Client secret** → Key Vault secret `AzureAd--ClientSecret`.
 
-> One additional admin step (outside this app reg): the proxy OBO-exchanges the user token to the
-> **Azure AI / Foundry data plane** (`https://ai.azure.com`). Grant the proxy app delegated
-> `user_impersonation` on the **Azure Machine Learning Services** API (admin consent) so leg ② succeeds.
+> **Note on permissions:** The proxy no longer needs `User.Read.All` because it no longer fetches the
+> user's profile. The agent's **Toolbox connection** is a separate OAuth app that handles all profile
+> fetching on the agent's behalf. See [`REFACTOR_SUMMARY.md`](./REFACTOR_SUMMARY.md) for the refactor rationale.
 
 ### Why `User.Read.All` requires admin consent
 
