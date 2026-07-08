@@ -2,12 +2,14 @@ namespace OBOFunction.Models;
 
 /// <summary>
 /// Chat request from the SPFx web part to the agent proxy.
-/// <paramref name="Message"/> is the user's query text.
+/// <paramref name="Message"/> is the user's query text (or empty string if greeting=true).
+/// <paramref name="Greeting"/> if true, triggers an opening greeting from the agent (overrides Message).
 /// <paramref name="PreviousResponseId"/> carries the prior turn's conversation id so the run can
 /// continue a multi-turn conversation on the same <c>ProjectConversation</c>.
 /// </summary>
 public sealed record AgentChatRequest(
     string Message,
+    bool Greeting = false,
     string? PreviousResponseId = null);
 
 /// <summary>

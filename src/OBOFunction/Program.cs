@@ -78,7 +78,8 @@ app.MapPost("/api/agent/chat", [Authorize] async (
 
         body ??= new AgentChatRequest(string.Empty);
 
-        if (string.IsNullOrWhiteSpace(body.Message))
+        // Greeting requests have empty message but greeting=true; other requests must have a non-empty message.
+        if (string.IsNullOrWhiteSpace(body.Message) && !body.Greeting)
             return Problem("A non-empty 'message' is required.", "Invalid request", StatusCodes.Status400BadRequest);
 
         var isFirstTurn = string.IsNullOrWhiteSpace(body.PreviousResponseId);
