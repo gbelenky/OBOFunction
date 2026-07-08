@@ -1,0 +1,8 @@
+<step title="Incoming Request" date="2026-06-22T15:57:03.528" instance="7c92b7" url="/api/deployments/latest?deployer=Push-Deployer&amp;time=2026-06-22_15-57-02Z" method="GET" type="request" pid="833,1,49" Host="app-proxy-z6vb2tjg2j4ye.scm.azurewebsites.net" User-Agent="azsdk-go-zip-deploy/1.0.0 (go1.26.1-X:loopvar; Windows_NT),azdev/1.25.4 (Go go1.26.1-X:loopvar; windows/amd64)" Accept-Encoding="gzip" Authorization="Bea..." x-ms-correlation-request-id="30eaeb1020d90ab2f8f38ef5b759d2f6" X-ARR-LOG-ID="30eaeb10-20d9-0ab2-f8f3-8ef5b759d2f6" CLIENT-IP="52.174.182.198:37957" X-SITE-DEPLOYMENT-ID="app-proxy-z6vb2tjg2j4ye" WAS-DEFAULT-HOSTNAME="app-proxy-z6vb2tjg2j4ye.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/api/deployments/latest?deployer=Push-Deployer&amp;time=2026-06-22_15-57-02Z" X-Client-IP="52.174.182.198" X-Client-Port="37957" >
+  <step title="DeploymentService.GetResult" date="2026-06-22T15:57:03.537" >
+    <step title="DeploymentService.GetLatestDeployment" date="2026-06-22T15:57:03.539" >
+      <step title="DeploymentManager.GetResults" date="2026-06-22T15:57:03.544" /><!-- duration: 583ms -->
+    </step><!-- duration: 594ms -->
+  </step><!-- duration: 601ms -->
+  <step title="Outgoing response" date="2026-06-22T15:57:04.150" type="response" statusCode="202" statusText="Accepted" /><!-- duration: 4ms -->
+</step><!-- duration: 630ms -->
