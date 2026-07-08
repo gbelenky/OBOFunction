@@ -1,187 +1,105 @@
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
+using Azure.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Microsoft.Identity.Client;
 using OBOFunction.Models;
 
 namespace OBOFunction.Services;
 
 /// <summary>
-/// A thin, <b>tool-agnostic</b> proxy that forwards a chat turn to the Foundry <b>hosted agent</b>
-/// and returns its reply. The proxy is <b>completely unaware of the agent's tools</b>: it never
-/// declares tools, instructions, or MCP servers — the agent owns all of that. The proxy's only
-/// jobs are (1) authenticate the SPFx caller and (2) call the agent <i>as that user</i> so the
-/// agent's own tools run with the user's identity.
+/// Calls the Foundry HOSTED agent as the signed-in user (OBO identity pass-through).
+/// 
+/// <para><b>Flow:</b> SPFx (user token) → Proxy (validates JWT) → HTTP POST to Responses endpoint
+/// with user's token in Authorization header → Foundry agent → Toolbox (user OBO for profile).</para>
+///
+/// <para><b>Identity:</b> The user's Bearer token is passed through to the Responses endpoint.
+/// The agent's Toolbox connection uses this token to perform OBO calls for the user's
+/// SharePoint/Graph profile.</para>
+///
+/// <para><b>Conversation state:</b> Multi-turn conversations are tied to <c>response_id</c> (conversation ID)
+/// which the client stores and passes back as <c>previous_response_id</c> on follow-up turns.</para>
 /// </summary>
-/// <remarks>
-/// <para><b>Flow:</b> SPFx → Proxy → Agent → (the agent's own) tools.</para>
-/// <para>
-/// The agent (<c>SharePointProfileAgent</c>) owns its tools itself, e.g. the local in-process
-/// <c>search_faq</c> tool. This client never references them.
-/// </para>
-/// <para><b>Identity (one user token, no app token):</b></para>
-/// <list type="number">
-/// <item><description>SPFx sends the user's token (audience = this proxy's app registration).</description></item>
-/// <item><description>The proxy OBO-exchanges it for a token whose audience is the Foundry data
-/// plane (<c>https://ai.azure.com</c>) — still the <i>same user</i>.</description></item>
-/// <item><description>The proxy POSTs the turn to the agent's Responses endpoint with that user
-/// token. No user token is ever stored.</description></item>
-/// </list>
-/// <para><b>Profile context (Option A):</b> Foundry OAuth identity passthrough cannot deliver the
-/// per-user SharePoint profile through a custom SPFx → proxy → agent chain (hosted-agent tool
-/// discovery runs under the agent's managed identity, so a passthrough tool is dropped and no
-/// consent is surfaced). Instead the endpoint resolves the user's profile itself via OBO
-/// (<see cref="IProfileContextService"/>) and injects it as a developer-role item before calling
-/// this client. This client remains tool-agnostic; it just forwards the message and that
-/// host-built context.</para>
-/// </remarks>
 public sealed class AgentChatClient : IAgentChatClient
 {
-    private static readonly HttpClient Http = new();
-
-    private readonly Uri _agentResponsesUri;
-    private readonly string _aiPlaneScope;
+    private readonly HttpClient _httpClient;
+    private readonly Uri _responsesEndpoint;
     private readonly string _agentName;
-    private readonly IConfidentialClientApplication _cca;
     private readonly ILogger<AgentChatClient> _logger;
 
     public AgentChatClient(IConfiguration config, ILogger<AgentChatClient> logger)
     {
         _logger = logger;
 
-        // The Foundry hosted-agent Responses endpoint. Prefer an explicit override; otherwise
-        // derive {projectEndpoint}/agents/{agentName}/endpoint/protocols/openai/responses?api-version=v1.
-        var agentResponsesUrl = config["Foundry:AgentResponsesUrl"];
-        _agentName = config["Foundry:AgentName"] ?? "SharePointProfileAgent";
-        if (string.IsNullOrWhiteSpace(agentResponsesUrl))
-        {
-            var projectEndpoint = config["Foundry:ProjectEndpoint"]
-                ?? throw new InvalidOperationException(
-                    "Foundry:AgentResponsesUrl or Foundry:ProjectEndpoint is required for the agent proxy.");
-            agentResponsesUrl =
-                $"{projectEndpoint.TrimEnd('/')}/agents/{_agentName}/endpoint/protocols/openai/responses?api-version=v1";
-        }
-        _agentResponsesUri = new Uri(agentResponsesUrl);
+        // Foundry Responses endpoint format: https://<resource>.services.ai.azure.com/projects/<projectName>/responses
+        string responsesUrl = config["Foundry:ResponsesUrl"]
+            ?? throw new InvalidOperationException(
+                "Foundry:ResponsesUrl is required (format: https://<resource>.services.ai.azure.com/projects/<projectName>/responses).");
+        _responsesEndpoint = new Uri(responsesUrl.TrimEnd('/'));
 
-        // OBO target: the Foundry data-plane audience. Calling the agent as the user is what lets
-        // the agent's UserEntraToken connection forward the user's identity to its tools.
-        _aiPlaneScope = config["Foundry:TokenScope"] ?? "https://ai.azure.com/.default";
+        _agentName = config["Foundry:AgentName"]
+            ?? throw new InvalidOperationException("Foundry:AgentName is required (the hosted agent name/id).");
 
-        // Confidential client for the OBO exchange (SPFx user token -> AI-plane token, same user).
-        var tenantId = config["AzureAd:TenantId"]
-            ?? throw new InvalidOperationException("AzureAd:TenantId is required for the agent proxy OBO.");
-        var clientId = config["AzureAd:ClientId"]
-            ?? throw new InvalidOperationException("AzureAd:ClientId is required for the agent proxy OBO.");
-        var clientSecret = config["AzureAd:ClientSecret"]
-            ?? throw new InvalidOperationException("AzureAd:ClientSecret is required for the agent proxy OBO.");
-
-        _cca = ConfidentialClientApplicationBuilder
-            .Create(clientId)
-            .WithClientSecret(clientSecret)
-            .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}"))
-            .Build();
-
-        _logger.LogInformation("Agent proxy ready: agent_endpoint={Endpoint}.", _agentResponsesUri);
+        _httpClient = new HttpClient();
+        _logger.LogInformation("Agent proxy ready: endpoint={Endpoint}, agent={Agent}.", _responsesEndpoint, _agentName);
     }
 
     public async Task<AgentChatReply> ChatAsync(
         AgentChatRequest request, string? userAssertion = null, CancellationToken ct = default)
     {
-        // Tag the in-flight chat span (started by the endpoint) with the target agent name so the
-        // distributed trace names which Foundry agent handled the turn.
         System.Diagnostics.Activity.Current?.SetTag(
             OBOFunction.Observability.AgentTelemetry.Attr.AgentName, _agentName);
 
         if (string.IsNullOrWhiteSpace(userAssertion))
             throw new UnauthorizedAccessException("The agent proxy requires the signed-in user's token.");
 
-        // OBO the SPFx user token to the Foundry data-plane audience — still the same user.
-        string aiPlaneUserToken;
-        try
-        {
-            var result = await _cca
-                .AcquireTokenOnBehalfOf([_aiPlaneScope], new UserAssertion(userAssertion))
-                .ExecuteAsync(ct)
-                .ConfigureAwait(false);
-            aiPlaneUserToken = result.AccessToken;
-        }
-        catch (MsalUiRequiredException ex)
-        {
-            _logger.LogInformation(ex, "OBO to the Foundry data plane requires user/admin consent.");
-            throw new UnauthorizedAccessException(
-                "The signed-in user must consent to the Azure AI (Foundry) data-plane scope before the " +
-                "agent can be called on their behalf. Grant admin/user consent for the configured " +
-                "Foundry:TokenScope.");
-        }
+        // POST to the Foundry Responses endpoint. Format:
+        // POST https://<resource>.services.ai.azure.com/projects/<projectName>/responses/<agentName>
+        var requestUrl = $"{_responsesEndpoint}/{_agentName}";
 
-        // Pure proxy → agent: just the conversation. NO tools, NO instructions, NO MCP wiring —
-        // the agent owns all of that. previous_response_id threads the multi-turn conversation and
-        // is only sent when present — the endpoint rejects an explicit null (it must be a string).
-        // SystemContext (the user's profile, set server-side) is delivered as a SEPARATE developer-role
-        // item so the model treats it as background context and does not echo it into a greeting reply.
-        var input = new List<object>();
-        if (!string.IsNullOrWhiteSpace(request.SystemContext))
-            input.Add(new { role = "developer", content = request.SystemContext });
-        input.Add(new { role = "user", content = request.Message });
-
-        var payload = new Dictionary<string, object?>
+        var requestBody = new
         {
-            ["input"] = input
+            message = request.Message,
+            previous_response_id = request.PreviousResponseId
         };
 
-        if (!string.IsNullOrWhiteSpace(request.PreviousResponseId))
-            payload["previous_response_id"] = request.PreviousResponseId;
+        var json = System.Text.Json.JsonSerializer.Serialize(requestBody);
+        var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-        var hadPrevious = !string.IsNullOrWhiteSpace(request.PreviousResponseId);
+        // Pass the user's Bearer token in the Authorization header.
+        // The agent's Toolbox connection will use this token to perform OBO on behalf of the user.
+        var request2 = new HttpRequestMessage(HttpMethod.Post, requestUrl)
+        {
+            Content = content
+        };
+        request2.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", userAssertion);
 
-        string raw;
         try
         {
-            raw = await PostAgentAsync(payload, aiPlaneUserToken, ct).ConfigureAwait(false);
-        }
-        catch (AgentResponsesException ex) when (hadPrevious && ex.IsDanglingToolCall)
-        {
-            // The conversation we were asked to continue (previous_response_id) contains a function
-            // tool call that never received its output — typically leftover state from an earlier
-            // agent version (e.g. a now-removed MCP/profile tool). Continuing it is impossible, so
-            // recover gracefully by retrying as a FRESH conversation (drop previous_response_id).
-            _logger.LogWarning(
-                "Continuation {PrevId} has a dangling tool call (HTTP error); retrying fresh. Detail: {Detail}",
-                request.PreviousResponseId, ex.Body);
-            payload.Remove("previous_response_id");
-            raw = await PostAgentAsync(payload, aiPlaneUserToken, ct).ConfigureAwait(false);
-        }
+            var response = await _httpClient.SendAsync(request2, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
 
-        return ParseReply(raw);
+            var responseText = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var result = System.Text.Json.JsonSerializer.Deserialize<ResponseBody>(responseText);
+
+            _logger.LogInformation("Agent response received: {Length} chars.", result?.output?.Length ?? 0);
+
+            return new AgentChatReply(
+                Reply: result?.output ?? string.Empty,
+                ResponseId: result?.response_id ?? string.Empty,
+                Status: "success");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Agent HTTP call failed: {RequestUrl}", requestUrl);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Agent call failed.");
+            throw;
+        }
     }
 
-    private async Task<string> PostAgentAsync(
-        Dictionary<string, object?> payload, string bearer, CancellationToken ct)
-    {
-        using var httpReq = new HttpRequestMessage(HttpMethod.Post, _agentResponsesUri);
-        httpReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-        httpReq.Content = new StringContent(
-            JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-
-        using var resp = await Http.SendAsync(httpReq, ct).ConfigureAwait(false);
-        var raw = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-
-        if (!resp.IsSuccessStatusCode)
-        {
-            _logger.LogError("Agent Responses call failed ({Status}): {Body}", (int)resp.StatusCode, raw);
-            throw new AgentResponsesException((int)resp.StatusCode, raw);
-        }
-
-        return raw;
-    }
-
-    /// <summary>
-    /// Parses a Responses payload into a reply. Delegates to <see cref="ResponsesPayloadParser"/>
-    /// so the (preview, fragile) parsing is unit-testable in isolation.
-    /// </summary>
-    private static AgentChatReply ParseReply(string json) => ResponsesPayloadParser.ParseReply(json);
+    private record ResponseBody(string? output, string? response_id);
 }
 
 /// <summary>
