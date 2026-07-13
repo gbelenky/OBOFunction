@@ -15,6 +15,8 @@ SharePoint page
 
 This repo owns the **proxy** and the **SPFx sample**. It does **not** own the live hosted agent
 implementation anymore.
+The hosted-agent source is published at
+[`gbelenky/HostedSecureMcpAgent`](https://github.com/gbelenky/HostedSecureMcpAgent).
 
 ## 2. Identity flow
 

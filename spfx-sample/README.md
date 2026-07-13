@@ -6,6 +6,9 @@ This sample demonstrates the **browser side** of the current integration:
 SPFx -> BFF proxy -> HostedSecureMcpAgent
 ```
 
+The hosted-agent source is published at
+[`gbelenky/HostedSecureMcpAgent`](https://github.com/gbelenky/HostedSecureMcpAgent).
+
 The SPFx web part:
 
 - calls the proxy with `AadHttpClient`

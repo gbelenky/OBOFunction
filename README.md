@@ -32,7 +32,8 @@ SPFx web part (SharePoint page)
 - No Azure Functions host / Functions-specific runtime model
 
 The **actual hosted agent is `HostedSecureMcpAgent` in Foundry** and is configured through proxy app
-settings:
+settings. The hosted-agent source is published at
+[`gbelenky/HostedSecureMcpAgent`](https://github.com/gbelenky/HostedSecureMcpAgent):
 
 - `Foundry__AgentName=HostedSecureMcpAgent`
 - `Foundry__AgentResponsesUrl=https://rsc-fdr-swc.services.ai.azure.com/api/projects/prj-fdr-swc/agents/HostedSecureMcpAgent/endpoint/protocols/openai/responses?api-version=v1`
