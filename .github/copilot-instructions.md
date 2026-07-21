@@ -72,6 +72,10 @@ The proxy is required because:
 - Never log user JWTs, OBO tokens, or raw secrets.
 - SPFx sample UI must use only public, supported libraries. Use Fluent UI v9 (`@fluentui/react-components`); never use internal-only `@fluentui-copilot/*` packages.
 
+## Git workflow
+
+- **Do NOT commit or push. The user commits and pushes themselves.** Only run `git commit` / `git push` when the user explicitly asks. Making changes is fine; leave them unstaged/uncommitted otherwise.
+
 ## Definition of done for changes
 
 - Build succeeds
