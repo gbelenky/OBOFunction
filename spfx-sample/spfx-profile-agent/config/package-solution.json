@@ -3,7 +3,7 @@
   "solution": {
     "name": "spfx-profile-agent-client-side-solution",
     "id": "92bba88c-7d63-4c56-a765-59186197f8fc",
-    "version": "1.0.0.0",
+    "version": "1.0.1.0",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
@@ -33,7 +33,7 @@
         "title": "spfx-profile-agent Feature",
         "description": "The feature that activates elements of the spfx-profile-agent solution.",
         "id": "533b5dd6-dc4d-494a-871b-2bc32cbac0e9",
-        "version": "1.0.0.0"
+        "version": "1.0.1.0"
       }
     ]
   },

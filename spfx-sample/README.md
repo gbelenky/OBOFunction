@@ -36,6 +36,12 @@ The browser cannot replace the proxy because:
 3. The proxy hides Foundry endpoint and agent-target details from the browser.
 4. Runtime fixes can be applied server-side without redeploying the client.
 
+## UI library
+
+The web part UI is built with the **public, supported Fluent UI v9**
+(`@fluentui/react-components` + `@fluentui/react-icons`). It does **not** use any
+internal-only `@fluentui-copilot/*` packages.
+
 ## Web part behavior
 
 On load:

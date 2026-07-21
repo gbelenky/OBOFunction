@@ -70,6 +70,7 @@ The proxy is required because:
 - Do not add browser-direct Foundry calls.
 - Keep first-turn requests free of `previous_response_id` when there is no prior response id.
 - Never log user JWTs, OBO tokens, or raw secrets.
+- SPFx sample UI must use only public, supported libraries. Use Fluent UI v9 (`@fluentui/react-components`); never use internal-only `@fluentui-copilot/*` packages.
 
 ## Definition of done for changes
 
